@@ -1,9 +1,11 @@
+use async_trait::async_trait;
 use reqwest::Error;
 use serde::Serialize;
 
 pub mod auth;
 pub mod openai;
 
+#[async_trait]
 pub trait AIModel {
     async fn call(&self, prompt: String) -> Result<String, Error>;
 }

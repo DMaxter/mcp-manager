@@ -11,7 +11,7 @@ async fn main() -> io::Result<()> {
         var.into_string().unwrap_or(CONFIG_FILE.to_owned())
     });
 
-    let models = get_config(&config_file)?;
+    let config = get_config(&config_file)?;
 
     let mut reader = BufReader::new(stdin());
     let mut line = String::new();
@@ -30,8 +30,6 @@ async fn main() -> io::Result<()> {
 
         prompt.push_str(&line);
     }
-
-    println!("{}", models[0].call(prompt).await.unwrap());
 
     Ok(())
 }

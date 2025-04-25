@@ -1,5 +1,6 @@
 use std::str::FromStr;
 
+use async_trait::async_trait;
 use reqwest::{
     Client, Error, Url,
     header::{HeaderMap, HeaderName, HeaderValue},
@@ -47,6 +48,7 @@ impl OpenAI {
     }
 }
 
+#[async_trait]
 impl AIModel for OpenAI {
     async fn call(&self, prompt: String) -> Result<String, Error> {
         let body = Body {
