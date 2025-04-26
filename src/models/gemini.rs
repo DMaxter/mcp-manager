@@ -11,55 +11,48 @@ use serde::{Deserialize, Serialize};
 use crate::models::{
     AIModel,
     auth::{Auth, AuthLocation},
+    openai::{Message, Role, ToolType},
 };
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Role {
-    Assistant,
-    System,
-    User,
-}
-
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub(crate) struct Body {
+pub(crate) struct OpenAIBody {
     pub(crate) model: String,
     pub(crate) messages: Vec<Message>,
     pub(crate) temperature: Option<f64>,
     pub(crate) max_tokens: Option<isize>,
     pub(crate) top_p: Option<f64>,
     pub(crate) tools: Option<Vec<Tool>>,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct Message {
-    pub(crate) role: Role,
-    pub(crate) content: String,
+    pub(crate) tool_choice: ToolChoice,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Tool {
     pub(crate) r#type: ToolType,
-    pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) parameters: Arc<JsonObject>,
-    pub(crate) strict: bool,
+    pub(crate) function: Function,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ToolType {
-    Function,
+pub(crate) struct Function {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) parameters: Arc<JsonObject>,
 }
 
-pub struct OpenAI {
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ToolChoice {
+    #[default]
+    Auto,
+}
+
+pub struct Gemini {
     url: Url,
     client: Client,
     model: String,
 }
 
-impl OpenAI {
-    pub fn new(url: String, auth: Auth, model: String) -> OpenAI {
+impl Gemini {
+    pub fn new(url: String, auth: Auth, model: String) -> Gemini {
         let (client, url) = match auth {
             Auth::ApiKey(location) => match location {
                 AuthLocation::Params(key, value) => (
@@ -85,14 +78,14 @@ impl OpenAI {
             ),
         };
 
-        OpenAI { client, url, model }
+        Gemini { client, url, model }
     }
 }
 
 #[async_trait]
-impl AIModel for OpenAI {
+impl AIModel for Gemini {
     async fn call(&self, prompt: String, tools: Vec<RcmpTool>) -> Result<String, Error> {
-        let body = Body {
+        let body = OpenAIBody {
             model: self.model.clone(),
             messages: vec![Message {
                 role: Role::User,
@@ -103,10 +96,11 @@ impl AIModel for OpenAI {
                     .into_iter()
                     .map(|tool: RcmpTool| Tool {
                         r#type: ToolType::Function,
-                        name: tool.name.into_owned(),
-                        description: tool.description.into_owned(),
-                        parameters: tool.input_schema,
-                        strict: false, // FIXME: allow this to be changed on the configuration
+                        function: Function {
+                            name: tool.name.into_owned(),
+                            description: tool.description.into_owned(),
+                            parameters: tool.input_schema,
+                        },
                     })
                     .collect(),
             ),

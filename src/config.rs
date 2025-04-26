@@ -1,3 +1,7 @@
+use rmcp::{
+    RoleClient, Service, ServiceExt, model::Tool, service::RunningService,
+    transport::TokioChildProcess,
+};
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, io, sync::Arc};
 use tokio::process::Command;
@@ -7,6 +11,7 @@ use crate::{
     mcp::local::LocalMcp,
     models::{
         auth::{Auth, AuthLocation},
+        gemini::Gemini,
         openai::OpenAI,
     },
 };
@@ -25,6 +30,7 @@ struct FileConfig {
 #[serde(rename_all = "lowercase")]
 enum ModelType {
     OpenAI,
+    Gemini,
 }
 
 #[derive(Debug, Deserialize)]
@@ -82,7 +88,7 @@ enum Mcp {
     },
 }
 
-pub fn get_config(file: &str) -> io::Result<ManagerConfig> {
+pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     let file = File::open(file).expect("Couldn't open file");
 
     let file_config: FileConfig = serde_yaml::from_reader(file).expect("Invalid configuration");
@@ -114,9 +120,10 @@ pub fn get_config(file: &str) -> io::Result<ManagerConfig> {
 
         config.models.insert(
             name,
-            Arc::new(match model.r#type {
-                ModelType::OpenAI => OpenAI::new(model.url, auth, model.model),
-            }),
+            match model.r#type {
+                ModelType::OpenAI => Arc::new(OpenAI::new(model.url, auth, model.model)),
+                ModelType::Gemini => Arc::new(Gemini::new(model.url, auth, model.model)),
+            },
         );
     }
 
@@ -136,7 +143,15 @@ pub fn get_config(file: &str) -> io::Result<ManagerConfig> {
                             command.envs(env);
                         }
 
-                        LocalMcp { command }
+                        LocalMcp {
+                            command: ()
+                                .serve(
+                                    TokioChildProcess::new(&mut command)
+                                        .expect("Couldn't start MCP server in tokio"),
+                                )
+                                .await
+                                .expect("Couldn't start MCP server"),
+                        }
                     }
                     _ => unimplemented!("MCP server not implemented"),
                 }),

@@ -6,6 +6,7 @@ use axum::{
     extract::Path,
     response::{IntoResponse, Response},
 };
+use futures::future::try_join_all;
 use mcp::McpServer;
 use serde::Serialize;
 use serde_json::json;
@@ -57,7 +58,16 @@ pub async fn workspace_handler(
     path.insert(0, '/');
 
     if let Some(workspace) = config.read().await.get(&path) {
-        return Ok(Json(workspace.model.call(prompt).await.unwrap()));
+        let tools_fut: Vec<_> = workspace.mcps.iter().map(|mcp| mcp.list_tools()).collect();
+
+        let tools = try_join_all(tools_fut)
+            .await
+            .expect("Couldn't get all tools")
+            .into_iter()
+            .flatten()
+            .collect();
+
+        Ok(Json(workspace.model.call(prompt, tools).await.unwrap()))
     } else {
         Err(error_path().await)
     }

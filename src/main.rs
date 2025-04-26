@@ -29,7 +29,7 @@ async fn main() -> io::Result<()> {
         var.into_string().unwrap_or(CONFIG_FILE.to_owned())
     });
 
-    let config = get_config(&config_file)?;
+    let config = get_config(&config_file).await?;
 
     let mut futures = Vec::new();
 
