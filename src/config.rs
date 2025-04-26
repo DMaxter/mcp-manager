@@ -3,13 +3,16 @@ use std::{collections::HashMap, fs::File, io, sync::Arc};
 use tokio::process::Command;
 
 use crate::{
-    ManagerConfig, McpServer, Workspace,
+    ManagerConfig, Workspace,
     mcp::local::LocalMcp,
     models::{
         auth::{Auth, AuthLocation},
         openai::OpenAI,
     },
 };
+
+const DEFAULT_PORT: u16 = 7000;
+const DEFAULT_LISTENER: &str = "127.0.0.1";
 
 #[derive(Debug, Deserialize)]
 struct FileConfig {
@@ -55,6 +58,14 @@ enum AuthConfig {
 struct WorkspaceConfig {
     model: String,
     mcps: Option<Vec<String>>,
+    config: WorkspaceListener,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkspaceListener {
+    path: String,
+    port: Option<u16>,
+    address: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -157,6 +168,40 @@ pub fn get_config(file: &str) -> io::Result<ManagerConfig> {
                         panic!("Undefined MCP {mcp} in workspace {name}")
                     }
                 }
+            }
+
+            let workspace = Arc::new(workspace);
+
+            let port = if let Some(port) = config_workspace.config.port {
+                port
+            } else {
+                DEFAULT_PORT
+            };
+            let path = if &config_workspace.config.path[0..1] != "/" {
+                panic!(
+                    "Invalid path '{}'. Paths start with '/'",
+                    config_workspace.config.path
+                )
+            } else {
+                config_workspace.config.path
+            };
+
+            let listener = if let Some(address) = config_workspace.config.address {
+                format!("{address}:{port}")
+            } else {
+                format!("{DEFAULT_LISTENER}:{port}")
+            };
+
+            if config.listeners.contains_key(&listener) {
+                config
+                    .listeners
+                    .get_mut(&listener)
+                    .unwrap()
+                    .insert(path, Arc::clone(&workspace));
+            } else {
+                config
+                    .listeners
+                    .insert(listener, HashMap::from([(path, Arc::clone(&workspace))]));
             }
 
             workspace
