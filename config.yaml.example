@@ -1,0 +1,59 @@
+# List of models to be used
+models:
+  # Name of a model to be referenced in the workspaces
+  gemini:
+    # URL of the model
+    url: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+    # Name of the model in use
+    model: gemini-2.0-flash
+    # Type of model, either: gemini or openai
+    type: gemini
+    # Authentication method for the model
+    auth:
+      # Only apikey for the moment
+      type: apikey
+      config:
+        # Where authentication should be set, either header or parameter
+        location: header
+        # Name of the header / parameter
+        name: Authorization
+        # Value of the header / parameter (i.e. API Key)
+        value: <MY API KEY>
+        # Prefix for header value
+        prefix: Bearer
+
+# List of MCP servers to be used
+mcps:
+  # Name of a MCP server to be referenced in the workspaces
+  # The downward structure is similar to what we should give to Claude when using Claude for Desktop
+  filesystem:
+    # Command
+    command: npx
+    # Arguments (optional)
+    args:
+      - -y
+      - "@modelcontextprotocol/server-filesystem"
+      - /home/daniel/git/mcp-servers/
+    # Environment variables (optional)
+    env:
+      MY_VAR: 123
+
+# List of workspaces to have available
+workspaces:
+  # Name for the workspace
+  gemini:
+    # Configuration of the listener for the workspace
+    config:
+      # Path to be exposing calls to this workspace
+      path: /gemini
+      # Port to be exposing calls to this workspace (optional)
+      # Default: 7000
+      port: 7001
+      # Host address to be exposing calls to this workspace (optional)
+      # Default: 127.0.0.1
+      address: 0.0.0.0
+    # Name of the model to use in this workspace
+    model: gemini
+    # List of MCP server names to be used in this workspace (optional)
+    mcps:
+      - filesystem
