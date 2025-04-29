@@ -1,10 +1,8 @@
 use std::{str::FromStr, sync::Arc};
 
 use async_trait::async_trait;
-use reqwest::{
-    Client, Error, Url,
-    header::{HeaderMap, HeaderName, HeaderValue},
-};
+use axum::http::{HeaderMap, HeaderName, HeaderValue};
+use reqwest::{Client, Error, Url};
 use rmcp::model::{JsonObject, Tool as RcmpTool};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json};
@@ -20,15 +18,54 @@ use crate::{
     },
 };
 
-#[derive(Debug, Default, Deserialize, Serialize)]
-pub(crate) struct OpenAIBody {
-    pub(crate) model: String,
+#[derive(Debug, Serialize)]
+pub(crate) struct RequestBody {
     pub(crate) messages: Vec<Message>,
     pub(crate) temperature: Option<f64>,
     pub(crate) max_tokens: Option<isize>,
     pub(crate) top_p: Option<f64>,
     pub(crate) tools: Option<Vec<Tool>>,
     pub(crate) tool_choice: ToolChoice,
+}
+
+impl From<ManagerBody> for RequestBody {
+    fn from(value: ManagerBody) -> Self {
+        RequestBody {
+            temperature: value.temperature,
+            max_tokens: value.max_tokens,
+            top_p: value.top_p,
+            messages: value
+                .messages
+                .into_iter()
+                .map(|message| match message {
+                    ManagerMessage::TextMessage(message) => Message::TextMessage(message),
+                    ManagerMessage::ToolOutput {
+                        call_id, output, ..
+                    } => Message::ToolOutput {
+                        role: Role::Tool,
+                        tool_call_id: call_id,
+                        content: output,
+                    },
+                    ManagerMessage::ToolCalls { role, tool_calls } => Message::ToolCalls {
+                        role,
+                        tool_calls: tool_calls
+                            .into_iter()
+                            .map(|call| ToolCall {
+                                function: ToolCallParams {
+                                    name: call.name,
+                                    arguments: json!(call.arguments).to_string(),
+                                },
+                                r#type: ToolType::Function,
+                                id: call.id,
+                            })
+                            .collect(),
+                    },
+                })
+                .collect(),
+            tool_choice: ToolChoice::Auto,
+            tools: None,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -52,7 +89,7 @@ pub(crate) enum ToolChoice {
 }
 
 #[derive(Debug, Deserialize)]
-pub(crate) struct OpenAIResponse {
+pub(crate) struct ResponseBody {
     pub(crate) choices: Vec<Choice>,
     created: usize,
     model: String,
@@ -90,8 +127,9 @@ pub(crate) enum Message {
         tool_calls: Vec<ToolCall>,
     },
     ToolOutput {
-        name: String,
-        response: ToolOutputResult,
+        role: Role,
+        tool_call_id: String,
+        content: String,
     },
 }
 
@@ -113,61 +151,22 @@ pub(crate) struct ToolCallParams {
     pub(crate) name: String,
 }
 
-impl From<ManagerBody> for OpenAIBody {
-    fn from(value: ManagerBody) -> Self {
-        OpenAIBody {
-            temperature: value.temperature,
-            max_tokens: value.max_tokens,
-            top_p: value.top_p,
-            messages: value
-                .messages
-                .into_iter()
-                .map(|message| match message {
-                    ManagerMessage::TextMessage(message) => Message::TextMessage(message),
-                    ManagerMessage::ToolOutput {
-                        call_id,
-                        r#type: _,
-                        output,
-                    } => Message::ToolOutput {
-                        name: call_id,
-                        response: ToolOutputResult { result: output },
-                    },
-                    ManagerMessage::ToolCalls { role, tool_calls } => Message::ToolCalls {
-                        role,
-                        tool_calls: tool_calls
-                            .into_iter()
-                            .map(|call| ToolCall {
-                                function: ToolCallParams {
-                                    name: call.name,
-                                    arguments: json!(call.arguments).to_string(),
-                                },
-                                r#type: ToolType::Function,
-                                id: String::new(),
-                            })
-                            .collect(),
-                    },
-                })
-                .collect(),
-            tool_choice: ToolChoice::Auto,
-            tools: None,
-            ..Default::default()
-        }
-    }
-}
-
-pub struct Gemini {
+pub struct Azure {
     url: Url,
     client: Client,
-    model: String,
 }
 
-impl Gemini {
-    pub fn new(url: String, auth: Auth, model: String) -> Gemini {
+impl Azure {
+    pub fn new(url: String, auth: Auth, api_version: String) -> Azure {
         let (client, url) = match auth {
             Auth::ApiKey(location) => match location {
                 AuthLocation::Params(key, value) => (
                     Client::new(),
-                    Url::parse_with_params(&url, &[(key, value)]).expect("Invalid URL"),
+                    Url::parse_with_params(
+                        &url,
+                        &[(key, value), (String::from("api-version"), api_version)],
+                    )
+                    .expect("Invalid URL"),
                 ),
                 AuthLocation::Header(header, value) => {
                     let mut headers = HeaderMap::new();
@@ -179,26 +178,24 @@ impl Gemini {
 
                     (
                         Client::builder().default_headers(headers).build().unwrap(),
-                        Url::parse(&url).expect("Invalid URL"),
+                        Url::parse_with_params(&url, &[("api-version", api_version)])
+                            .expect("Invalid URL"),
                     )
                 }
             },
-            _ => panic!(
-                "Invalid authentication method for Gemini! Supported: API Key in headers or request parameters"
-            ),
+            _ => panic!("Invalid authentication method for Azure! Supported: API Key in headers"),
         };
 
-        Gemini { client, url, model }
+        Azure { client, url }
     }
 }
 
 #[async_trait]
-impl AIModel for Gemini {
-    #[instrument(skip(self, tools))]
+impl AIModel for Azure {
+    #[instrument(skip_all)]
     async fn call(&self, body: ManagerBody, tools: Vec<RcmpTool>) -> Result<ModelDecision, Error> {
-        let mut body: OpenAIBody = body.into();
+        let mut body: RequestBody = body.into();
 
-        body.model = self.model.clone();
         body.tools = Some(
             tools
                 .into_iter()
@@ -224,22 +221,21 @@ impl AIModel for Gemini {
 
         event!(Level::DEBUG, "Response: {response:?}");
 
-        let response = from_str::<OpenAIResponse>(&response).unwrap_or_else(|error| {
+        let response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");
 
             panic!()
         });
 
-        if response.choices.len() > 1 {
-            todo!("Unknown response needs to be handled: {response:?}")
+        if response.choices.len() != 1 {
+            todo!("Unknown response needs to be handled: {response:#?}")
         }
 
-        // TODO: support multiple choices
         Ok(match response.choices[0].finish_reason {
             FinishReason::Stop => {
                 ModelDecision::TextMessage(match response.choices[0].message.clone() {
                     Message::TextMessage(TextMessage { role: _, content }) => content,
-                    _ => todo!("Unknown response needs to be handled: {response:?}"),
+                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
                 })
             }
             FinishReason::ToolCalls => {
@@ -250,12 +246,12 @@ impl AIModel for Gemini {
                     } => tool_calls
                         .into_iter()
                         .map(|call| GeneralToolCall {
-                            id: call.id,
                             name: call.function.name,
+                            id: call.id,
                             arguments: from_str(&call.function.arguments).unwrap(),
                         })
                         .collect(),
-                    _ => todo!("Unknown response needs to be handled: {response:?}"),
+                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
                 })
             }
         })

@@ -7,37 +7,26 @@ use reqwest::{
 };
 use rmcp::model::{JsonObject, Tool as RcmpTool};
 use serde::{Deserialize, Serialize};
+use tracing::{Level, event};
 
-use crate::models::{
-    AIModel,
-    auth::{Auth, AuthLocation},
+use crate::{
+    ManagerBody,
+    models::{
+        AIModel, Message, ModelDecision,
+        auth::{Auth, AuthLocation},
+    },
 };
 
-#[derive(Debug, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum Role {
-    Assistant,
-    System,
-    User,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-pub(crate) struct Body {
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct Body {
     pub(crate) model: String,
-    pub(crate) messages: Vec<Message>,
+    pub(crate) input: Vec<Message>,
     pub(crate) temperature: Option<f64>,
-    pub(crate) max_tokens: Option<isize>,
     pub(crate) top_p: Option<f64>,
     pub(crate) tools: Option<Vec<Tool>>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct Message {
-    pub(crate) role: Role,
-    pub(crate) content: String,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Tool {
     pub(crate) r#type: ToolType,
     pub(crate) name: String,
@@ -46,7 +35,7 @@ pub struct Tool {
     pub(crate) strict: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ToolType {
     Function,
@@ -89,37 +78,48 @@ impl OpenAI {
     }
 }
 
+impl From<ManagerBody> for Body {
+    fn from(value: ManagerBody) -> Self {
+        Body {
+            temperature: value.temperature,
+            top_p: value.top_p,
+            input: value.messages,
+            tools: None,
+            ..Default::default()
+        }
+    }
+}
+
 #[async_trait]
 impl AIModel for OpenAI {
-    async fn call(&self, prompt: String, tools: Vec<RcmpTool>) -> Result<String, Error> {
-        let body = Body {
-            model: self.model.clone(),
-            messages: vec![Message {
-                role: Role::User,
-                content: prompt,
-            }],
-            tools: Some(
-                tools
-                    .into_iter()
-                    .map(|tool: RcmpTool| Tool {
-                        r#type: ToolType::Function,
-                        name: tool.name.into_owned(),
-                        description: tool.description.into_owned(),
-                        parameters: tool.input_schema,
-                        strict: false, // FIXME: allow this to be changed on the configuration
-                    })
-                    .collect(),
-            ),
-            ..Default::default()
-        };
+    async fn call(&self, body: ManagerBody, tools: Vec<RcmpTool>) -> Result<ModelDecision, Error> {
+        let mut body: Body = body.into();
+
+        body.model = self.model.clone();
+        body.tools = Some(
+            tools
+                .into_iter()
+                .map(|tool: RcmpTool| Tool {
+                    r#type: ToolType::Function,
+                    name: tool.name.into_owned(),
+                    description: tool.description.into_owned(),
+                    parameters: tool.input_schema,
+                    strict: false, // FIXME: allow this to be changed on the configuration
+                })
+                .collect(),
+        );
 
         let response = self
             .client
             .post(self.url.clone())
             .json(&body)
             .send()
+            .await?
+            .text()
             .await?;
 
-        Ok(response.text().await?)
+        event!(Level::DEBUG, "Response: {response:?}");
+
+        Ok(ModelDecision::TextMessage(String::new()))
     }
 }

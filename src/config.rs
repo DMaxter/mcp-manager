@@ -1,7 +1,4 @@
-use rmcp::{
-    RoleClient, Service, ServiceExt, model::Tool, service::RunningService,
-    transport::TokioChildProcess,
-};
+use rmcp::{ServiceExt, transport::TokioChildProcess};
 use serde::Deserialize;
 use std::{collections::HashMap, fs::File, io, sync::Arc};
 use tokio::process::Command;
@@ -11,6 +8,7 @@ use crate::{
     mcp::local::LocalMcp,
     models::{
         auth::{Auth, AuthLocation},
+        azure::Azure,
         gemini::Gemini,
         openai::OpenAI,
     },
@@ -27,27 +25,31 @@ struct FileConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-enum ModelType {
-    OpenAI,
-    Gemini,
+#[serde(rename_all = "lowercase", tag = "type")]
+enum Model {
+    Gemini(BaseModel),
+    OpenAI(BaseModel),
+    Azure {
+        url: String,
+        auth: AuthMethod,
+        api_version: String,
+    },
 }
 
 #[derive(Debug, Deserialize)]
-struct Model {
+struct BaseModel {
     url: String,
     auth: AuthMethod,
     model: String,
-    r#type: ModelType,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "lowercase", tag = "type", content = "config")]
 enum AuthMethod {
     ApiKey(AuthConfig),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "location")]
 enum AuthConfig {
     #[serde(rename = "header")]
@@ -98,31 +100,24 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     };
 
     for (name, model) in file_config.models {
-        let auth = match model.auth {
-            AuthMethod::ApiKey(location) => match location {
-                AuthConfig::Parameter { name, value } => {
-                    Auth::ApiKey(AuthLocation::Params(name, value))
-                }
-                AuthConfig::Header {
-                    name,
-                    value,
-                    prefix,
-                } => Auth::ApiKey(AuthLocation::Header(
-                    name,
-                    if let Some(prefix) = prefix {
-                        format!("{prefix} {value}")
-                    } else {
-                        value
-                    },
-                )),
-            },
+        let auth = match model {
+            Model::OpenAI(BaseModel { ref auth, .. })
+            | Model::Gemini(BaseModel { ref auth, .. })
+            | Model::Azure { ref auth, .. } => get_auth(auth.to_owned()),
         };
 
         config.models.insert(
             name,
-            match model.r#type {
-                ModelType::OpenAI => Arc::new(OpenAI::new(model.url, auth, model.model)),
-                ModelType::Gemini => Arc::new(Gemini::new(model.url, auth, model.model)),
+            match model {
+                Model::OpenAI(BaseModel { url, model, .. }) => {
+                    Arc::new(OpenAI::new(url, auth, model))
+                }
+                Model::Gemini(BaseModel { url, model, .. }) => {
+                    Arc::new(Gemini::new(url, auth, model))
+                }
+                Model::Azure {
+                    url, api_version, ..
+                } => Arc::new(Azure::new(url, auth, api_version)),
             },
         );
     }
@@ -162,6 +157,7 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     for (name, config_workspace) in file_config.workspaces {
         config.workspaces.insert(name.clone(), {
             let mut workspace = Workspace {
+                name: name.clone(),
                 model: Arc::clone(
                     if let Some(model) = config.models.get(&config_workspace.model) {
                         model
@@ -224,4 +220,26 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     }
 
     Ok(config)
+}
+
+fn get_auth(auth: AuthMethod) -> Auth {
+    match auth {
+        AuthMethod::ApiKey(location) => match location {
+            AuthConfig::Parameter { name, value } => {
+                Auth::ApiKey(AuthLocation::Params(name, value))
+            }
+            AuthConfig::Header {
+                name,
+                value,
+                prefix,
+            } => Auth::ApiKey(AuthLocation::Header(
+                name,
+                if let Some(prefix) = prefix {
+                    format!("{prefix} {value}")
+                } else {
+                    value
+                },
+            )),
+        },
+    }
 }
