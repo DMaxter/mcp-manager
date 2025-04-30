@@ -92,7 +92,11 @@ impl From<ManagerBody> for Body {
 
 #[async_trait]
 impl AIModel for OpenAI {
-    async fn call(&self, body: ManagerBody, tools: Vec<RcmpTool>) -> Result<ModelDecision, Error> {
+    async fn call(
+        &self,
+        body: ManagerBody,
+        tools: Vec<RcmpTool>,
+    ) -> Result<Vec<ModelDecision>, Error> {
         let mut body: Body = body.into();
 
         body.model = self.model.clone();
@@ -120,6 +124,6 @@ impl AIModel for OpenAI {
 
         event!(Level::DEBUG, "Response: {response:?}");
 
-        Ok(ModelDecision::TextMessage(String::new()))
+        Ok(vec![ModelDecision::TextMessage(String::new())])
     }
 }

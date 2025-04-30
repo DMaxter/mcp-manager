@@ -10,7 +10,9 @@ use axum::{
 };
 use futures::future::try_join_all;
 use mcp::McpServer;
-use models::{Message, ModelDecision, Role, ToolOutputType, openai::Tool as OpenAITool};
+use models::{
+    Message, ModelDecision, Role, TextMessage, ToolOutputType, openai::Tool as OpenAITool,
+};
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -107,40 +109,57 @@ pub async fn workspace_handler(
                 .await
                 .unwrap();
 
-            match response {
-                ModelDecision::ToolCalls(calls) => {
-                    // TODO: Support multiple tool calls
-                    body.append_message(Message::ToolCalls {
-                        role: Role::Assistant,
-                        tool_calls: calls.clone(),
-                    });
+            let mut tool_call = false;
 
-                    for call in calls {
-                        let call_id = call.id.clone();
+            for decision in response.into_iter() {
+                match decision {
+                    ModelDecision::ToolCalls(calls) => {
+                        tool_call = true;
 
-                        let mcp_server = mcp_calls
-                            .get(&call.name)
-                            .ok_or(String::from("Function doesn't exist"));
-
-                        let response = if let Ok(mcp_server) = mcp_server {
-                            mcp_server.call(call).await.map_err(|_| Error {
-                                status: 500,
-                                message: String::from("Internal server error"),
-                            })?
-                        } else {
-                            mcp_server.err().unwrap()
-                        };
-
-                        body.append_message(Message::ToolOutput {
-                            r#type: ToolOutputType::FunctionCallOutput,
-                            output: response,
-                            call_id,
+                        body.append_message(Message::ToolCalls {
+                            role: Role::Assistant,
+                            tool_calls: calls.clone(),
                         });
+
+                        for call in calls {
+                            let call_id = call.id.clone();
+
+                            let mcp_server = mcp_calls
+                                .get(&call.name)
+                                .ok_or(String::from("Function doesn't exist"));
+
+                            let response = if let Ok(mcp_server) = mcp_server {
+                                mcp_server.call(call).await.map_err(|_| Error {
+                                    status: 500,
+                                    message: String::from("Internal server error"),
+                                })?
+                            } else {
+                                mcp_server.err().unwrap()
+                            };
+
+                            body.append_message(Message::ToolOutput {
+                                r#type: ToolOutputType::FunctionCallOutput,
+                                output: response,
+                                call_id,
+                            });
+                        }
                     }
-                }
-                ModelDecision::TextMessage(message) => return Ok(Json(message)),
-            };
+                    ModelDecision::TextMessage(message) => {
+                        body.append_message(Message::TextMessage(TextMessage {
+                            role: Role::Assistant,
+                            content: message,
+                        }))
+                    }
+                };
+            }
+
+            // If LLM doesn't want to call anything, just return all the messages
+            if !tool_call {
+                break;
+            }
         }
+
+        Ok(Json(body))
     } else {
         Err(error_path().await)
     }

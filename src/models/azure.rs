@@ -193,7 +193,11 @@ impl Azure {
 #[async_trait]
 impl AIModel for Azure {
     #[instrument(skip_all)]
-    async fn call(&self, body: ManagerBody, tools: Vec<RcmpTool>) -> Result<ModelDecision, Error> {
+    async fn call(
+        &self,
+        body: ManagerBody,
+        tools: Vec<RcmpTool>,
+    ) -> Result<Vec<ModelDecision>, Error> {
         let mut body: RequestBody = body.into();
 
         body.tools = Some(
@@ -210,6 +214,8 @@ impl AIModel for Azure {
                 .collect(),
         );
 
+        event!(Level::DEBUG, "Request: {body:#?}");
+
         let response: String = self
             .client
             .post(self.url.clone())
@@ -221,39 +227,40 @@ impl AIModel for Azure {
 
         event!(Level::DEBUG, "Response: {response:?}");
 
-        let response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
+        let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");
 
             panic!()
         });
 
-        if response.choices.len() != 1 {
-            todo!("Unknown response needs to be handled: {response:#?}")
+        if response.choices.len() > 1 {
+            event!(
+                Level::WARN,
+                "Model gave multiple choices, moving on with first one"
+            )
         }
 
-        Ok(match response.choices[0].finish_reason {
-            FinishReason::Stop => {
-                ModelDecision::TextMessage(match response.choices[0].message.clone() {
-                    Message::TextMessage(TextMessage { role: _, content }) => content,
-                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
-                })
-            }
-            FinishReason::ToolCalls => {
-                ModelDecision::ToolCalls(match response.choices[0].message.clone() {
-                    Message::ToolCalls {
-                        role: _,
-                        tool_calls,
-                    } => tool_calls
-                        .into_iter()
-                        .map(|call| GeneralToolCall {
-                            name: call.function.name,
-                            id: call.id,
-                            arguments: from_str(&call.function.arguments).unwrap(),
-                        })
-                        .collect(),
-                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
-                })
-            }
-        })
+        let choice = response.choices.remove(0);
+
+        Ok(vec![match choice.finish_reason {
+            FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
+                Message::TextMessage(TextMessage { role: _, content }) => content,
+                _ => todo!("Unknown response needs to be handled: {response:#?}"),
+            }),
+            FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {
+                Message::ToolCalls {
+                    role: _,
+                    tool_calls,
+                } => tool_calls
+                    .into_iter()
+                    .map(|call| GeneralToolCall {
+                        name: call.function.name,
+                        id: call.id,
+                        arguments: from_str(&call.function.arguments).unwrap(),
+                    })
+                    .collect(),
+                _ => todo!("Unknown response needs to be handled: {response:#?}"),
+            }),
+        }])
     }
 }

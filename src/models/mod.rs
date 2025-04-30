@@ -12,7 +12,7 @@ pub mod openai;
 
 #[async_trait]
 pub trait AIModel: Sync {
-    async fn call(&self, body: ManagerBody, tools: Vec<Tool>) -> Result<ModelDecision, Error>;
+    async fn call(&self, body: ManagerBody, tools: Vec<Tool>) -> Result<Vec<ModelDecision>, Error>;
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

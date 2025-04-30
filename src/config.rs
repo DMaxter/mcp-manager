@@ -27,7 +27,10 @@ struct FileConfig {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "lowercase", tag = "type")]
 enum Model {
-    Gemini(BaseModel),
+    Gemini {
+        url: String,
+        auth: AuthMethod,
+    },
     OpenAI(BaseModel),
     Azure {
         url: String,
@@ -102,7 +105,7 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     for (name, model) in file_config.models {
         let auth = match model {
             Model::OpenAI(BaseModel { ref auth, .. })
-            | Model::Gemini(BaseModel { ref auth, .. })
+            | Model::Gemini { ref auth, .. }
             | Model::Azure { ref auth, .. } => get_auth(auth.to_owned()),
         };
 
@@ -112,9 +115,7 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                 Model::OpenAI(BaseModel { url, model, .. }) => {
                     Arc::new(OpenAI::new(url, auth, model))
                 }
-                Model::Gemini(BaseModel { url, model, .. }) => {
-                    Arc::new(Gemini::new(url, auth, model))
-                }
+                Model::Gemini { url, .. } => Arc::new(Gemini::new(url, auth)),
                 Model::Azure {
                     url, api_version, ..
                 } => Arc::new(Azure::new(url, auth, api_version)),

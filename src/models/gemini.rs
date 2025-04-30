@@ -1,168 +1,224 @@
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use async_trait::async_trait;
+use rand::distr::{Alphanumeric, SampleString};
 use reqwest::{
     Client, Error, Url,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
 use rmcp::model::{JsonObject, Tool as RcmpTool};
 use serde::{Deserialize, Serialize};
-use serde_json::{from_str, json};
+use serde_json::{Value, from_str};
 use tracing::{Level, event, instrument};
 
 use crate::{
     ManagerBody,
     mcp::ToolCall as GeneralToolCall,
     models::{
-        AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
+        AIModel, Message as ManagerMessage, ModelDecision, Role as ManagerRole, TextMessage,
         auth::{Auth, AuthLocation},
-        openai::ToolType,
     },
 };
 
+const ID_LEN: usize = 24;
+
 #[derive(Debug, Default, Deserialize, Serialize)]
-pub(crate) struct OpenAIBody {
-    pub(crate) model: String,
-    pub(crate) messages: Vec<Message>,
-    pub(crate) temperature: Option<f64>,
-    pub(crate) max_tokens: Option<isize>,
-    pub(crate) top_p: Option<f64>,
+pub(crate) struct RequestBody {
+    pub(crate) contents: Vec<Message>,
     pub(crate) tools: Option<Vec<Tool>>,
-    pub(crate) tool_choice: ToolChoice,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Tool {
-    pub(crate) r#type: ToolType,
-    pub(crate) function: Function,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct Function {
-    pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) parameters: Arc<JsonObject>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ToolChoice {
-    #[default]
-    Auto,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct OpenAIResponse {
-    pub(crate) choices: Vec<Choice>,
-    created: usize,
-    model: String,
-    object: String,
-    usage: UsageTokens,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct UsageTokens {
-    completion_tokens: usize,
-    prompt_tokens: usize,
-    total_tokens: usize,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct Choice {
-    pub(crate) finish_reason: FinishReason,
-    pub(crate) index: usize,
-    pub(crate) message: Message,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum FinishReason {
-    ToolCalls,
-    Stop,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub(crate) enum Message {
-    TextMessage(TextMessage),
-    ToolCalls {
-        role: Role,
-        tool_calls: Vec<ToolCall>,
-    },
-    ToolOutput {
-        name: String,
-        response: ToolOutputResult,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ToolOutputResult {
-    result: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ToolCall {
-    function: ToolCallParams,
-    r#type: ToolType,
-    id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ToolCallParams {
-    pub(crate) arguments: String,
-    pub(crate) name: String,
-}
-
-impl From<ManagerBody> for OpenAIBody {
+impl From<ManagerBody> for RequestBody {
     fn from(value: ManagerBody) -> Self {
-        OpenAIBody {
-            temperature: value.temperature,
-            max_tokens: value.max_tokens,
-            top_p: value.top_p,
-            messages: value
-                .messages
-                .into_iter()
-                .map(|message| match message {
-                    ManagerMessage::TextMessage(message) => Message::TextMessage(message),
-                    ManagerMessage::ToolOutput {
-                        call_id,
-                        r#type: _,
-                        output,
-                    } => Message::ToolOutput {
-                        name: call_id,
-                        response: ToolOutputResult { result: output },
-                    },
-                    ManagerMessage::ToolCalls { role, tool_calls } => Message::ToolCalls {
-                        role,
-                        tool_calls: tool_calls
+        let mut contents = Vec::new();
+
+        let mut last_output: Option<&mut Message> = None;
+
+        for message in value.messages.into_iter() {
+            match message {
+                ManagerMessage::TextMessage(TextMessage { role, content }) => {
+                    last_output = None;
+
+                    contents.push(Message {
+                        role: match role {
+                            ManagerRole::Assistant => Role::Model,
+                            ManagerRole::User => Role::User,
+                            _ => unreachable!("Role not possible for text message"),
+                        },
+                        parts: vec![Part::Text { text: content }],
+                    });
+                }
+                ManagerMessage::ToolCalls { role, tool_calls } => {
+                    last_output = None;
+
+                    contents.push(Message {
+                        role: match role {
+                            ManagerRole::Assistant => Role::Model,
+                            _ => unreachable!("Role not possible for tool call"),
+                        },
+                        parts: tool_calls
                             .into_iter()
-                            .map(|call| ToolCall {
-                                function: ToolCallParams {
+                            .map(|call| Part::FunctionCall {
+                                function_call: FunctionCall {
                                     name: call.name,
-                                    arguments: json!(call.arguments).to_string(),
+                                    args: call.arguments,
                                 },
-                                r#type: ToolType::Function,
-                                id: String::new(),
                             })
                             .collect(),
-                    },
-                })
-                .collect(),
-            tool_choice: ToolChoice::Auto,
-            tools: None,
+                    });
+                }
+                ManagerMessage::ToolOutput {
+                    call_id, output, ..
+                } => {
+                    if let Some(last) = last_output {
+                        last.parts.push(Part::FunctionOutput {
+                            function_response: FunctionResponse {
+                                name: call_id.clone(),
+                                response: FunctionContent {
+                                    name: call_id,
+                                    content: output,
+                                },
+                            },
+                        })
+                    } else {
+                        contents.push(Message {
+                            role: Role::Function,
+                            parts: vec![Part::FunctionOutput {
+                                function_response: FunctionResponse {
+                                    name: call_id.clone(),
+                                    response: FunctionContent {
+                                        name: call_id,
+                                        content: output,
+                                    },
+                                },
+                            }],
+                        });
+                    }
+
+                    last_output = contents.last_mut();
+                }
+            };
+        }
+
+        RequestBody {
+            contents,
             ..Default::default()
         }
     }
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Tool {
+    pub(crate) function_declarations: Vec<FunctionDeclaration>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub(crate) struct FunctionDeclaration {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) parameters: JsonObject,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct Message {
+    role: Role,
+    parts: Vec<Part>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Model,
+    Function,
+    User,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum Part {
+    Text {
+        text: String,
+    },
+    FunctionCall {
+        #[serde(rename = "functionCall")]
+        function_call: FunctionCall,
+    },
+    FunctionOutput {
+        function_response: FunctionResponse,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ResponseBody {
+    candidates: Vec<Candidate>,
+    usage_metadata: UsageTokens,
+    model_version: String,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Candidate {
+    content: Message,
+    finish_reason: FinishReason,
+    avg_logprobs: f64,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+enum FinishReason {
+    Stop,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct UsageTokens {
+    prompt_token_count: usize,
+    candidates_token_count: usize,
+    total_token_count: usize,
+    prompt_tokens_details: Vec<TokenDetails>,
+    candidates_tokens_details: Vec<TokenDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TokenDetails {
+    modality: Modality,
+    token_count: usize,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "UPPERCASE")]
+enum Modality {
+    Text,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct FunctionCall {
+    name: String,
+    args: Option<JsonObject>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct FunctionResponse {
+    name: String,
+    response: FunctionContent,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct FunctionContent {
+    name: String,
+    content: String,
+}
+
 pub struct Gemini {
     url: Url,
     client: Client,
-    model: String,
 }
 
 impl Gemini {
-    pub fn new(url: String, auth: Auth, model: String) -> Gemini {
+    pub fn new(url: String, auth: Auth) -> Gemini {
         let (client, url) = match auth {
             Auth::ApiKey(location) => match location {
                 AuthLocation::Params(key, value) => (
@@ -188,30 +244,37 @@ impl Gemini {
             ),
         };
 
-        Gemini { client, url, model }
+        Gemini { client, url }
     }
 }
 
 #[async_trait]
 impl AIModel for Gemini {
-    #[instrument(skip(self, tools))]
-    async fn call(&self, body: ManagerBody, tools: Vec<RcmpTool>) -> Result<ModelDecision, Error> {
-        let mut body: OpenAIBody = body.into();
+    #[instrument(skip_all)]
+    async fn call(
+        &self,
+        body: ManagerBody,
+        tools: Vec<RcmpTool>,
+    ) -> Result<Vec<ModelDecision>, Error> {
+        let mut body: RequestBody = body.into();
 
-        body.model = self.model.clone();
-        body.tools = Some(
-            tools
+        body.tools = Some(vec![Tool {
+            function_declarations: tools
                 .into_iter()
-                .map(|tool: RcmpTool| Tool {
-                    r#type: ToolType::Function,
-                    function: Function {
-                        name: tool.name.into_owned(),
-                        description: tool.description.into_owned(),
-                        parameters: tool.input_schema,
-                    },
+                .map(|tool: RcmpTool| {
+                    let mut schema = JsonObject::clone(&tool.input_schema);
+                    remove_keys(&mut schema);
+
+                    FunctionDeclaration {
+                        name: tool.name.to_string(),
+                        description: tool.description.to_string(),
+                        parameters: schema,
+                    }
                 })
                 .collect(),
-        );
+        }]);
+
+        event!(Level::DEBUG, "Request: {body:#?}");
 
         let response: String = self
             .client
@@ -222,42 +285,73 @@ impl AIModel for Gemini {
             .text()
             .await?;
 
-        event!(Level::DEBUG, "Response: {response:?}");
+        event!(Level::DEBUG, "Response: {response:#?}");
 
-        let response = from_str::<OpenAIResponse>(&response).unwrap_or_else(|error| {
+        let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");
 
             panic!()
         });
 
-        if response.choices.len() > 1 {
-            todo!("Unknown response needs to be handled: {response:?}")
+        if response.candidates.len() > 1 {
+            event!(
+                Level::WARN,
+                "Model gave multiple choices, moving on with first one"
+            )
         }
 
-        // TODO: support multiple choices
-        Ok(match response.choices[0].finish_reason {
+        let choice = response.candidates.remove(0);
+
+        let mut result = Vec::new();
+
+        match choice.finish_reason {
             FinishReason::Stop => {
-                ModelDecision::TextMessage(match response.choices[0].message.clone() {
-                    Message::TextMessage(TextMessage { role: _, content }) => content,
-                    _ => todo!("Unknown response needs to be handled: {response:?}"),
-                })
+                let mut last_call: Option<&mut ModelDecision> = None;
+                for part in choice.content.parts.into_iter() {
+                    match part {
+                        Part::Text { text } => {
+                            last_call = None;
+                            result.push(ModelDecision::TextMessage(text));
+                        }
+                        Part::FunctionCall { function_call } => {
+                            let id = Alphanumeric.sample_string(&mut rand::rng(), ID_LEN);
+
+                            if let Some(last) = last_call
+                                && let ModelDecision::ToolCalls(calls) = last
+                            {
+                                calls.push(GeneralToolCall {
+                                    id,
+                                    name: function_call.name,
+                                    arguments: function_call.args,
+                                });
+                            } else {
+                                result.push(ModelDecision::ToolCalls(vec![GeneralToolCall {
+                                    id,
+                                    name: function_call.name,
+                                    arguments: function_call.args,
+                                }]));
+                            }
+
+                            last_call = result.last_mut();
+                        }
+                        _ => unreachable!("Part not supported"),
+                    }
+                }
             }
-            FinishReason::ToolCalls => {
-                ModelDecision::ToolCalls(match response.choices[0].message.clone() {
-                    Message::ToolCalls {
-                        role: _,
-                        tool_calls,
-                    } => tool_calls
-                        .into_iter()
-                        .map(|call| GeneralToolCall {
-                            id: call.id,
-                            name: call.function.name,
-                            arguments: from_str(&call.function.arguments).unwrap(),
-                        })
-                        .collect(),
-                    _ => todo!("Unknown response needs to be handled: {response:?}"),
-                })
-            }
-        })
+        }
+
+        Ok(result)
+    }
+}
+
+fn remove_keys(map: &mut JsonObject) {
+    map.remove("$schema");
+    map.remove("additionalProperties");
+
+    for value in map.values_mut() {
+        match value {
+            Value::Object(map) => remove_keys(map),
+            _ => (),
+        }
     }
 }
