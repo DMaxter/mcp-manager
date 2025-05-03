@@ -21,7 +21,7 @@ If you want to learn more, head over to <https://mcp.so> and scroll to the botto
 
 ## Installation
 
-Just download the appropriate file for your operating system in the [Release](https://gitlab.com/DMaxter/mcp-manager/-/releases) section and it is ready to go.
+Just download the appropriate file for your operating system in the [Release](https://gitlab.com/DMaxter/mcp-manager/-/releases) section, on **Packages**, and it is ready to go.
 
 ## Configuration
 
