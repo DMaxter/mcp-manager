@@ -1,5 +1,8 @@
 # MCP Manager
 
+[![CI](https://gitlab.com/DMaxter/mcp-manager/badges/main/pipeline.svg)](https://gitlab.com/DMaxter/mcp-manager/-/pipelines?page=1&scope=all&ref=main)
+[![Release](https://gitlab.com/DMaxter/mcp-manager/-/badges/release.svg)](https://gitlab.com/DMaxter/mcp-manager/-/releases/permalink/latest)
+
 MCP Manager acts as a bridge between Large Language Models (LLMs) and MCP servers. It allows you to interact with remote and local APIs using natural language prompts via supported chat completion APIs.
 
 Workspaces can be defined with distinct configurations, enabling connections to different LLM endpoints and MCP servers (potentially on various ports, addresses, or paths) using a single MCP Manager instance.
