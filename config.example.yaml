@@ -4,9 +4,7 @@ models:
   gemini:
     # URL of the model
     url: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-    # Name of the model in use
-    model: gemini-2.0-flash
-    # Type of model, either: gemini or openai
+    # Type of model, either: gemini or azure
     type: gemini
     # Authentication method for the model
     auth:
@@ -14,13 +12,13 @@ models:
       type: apikey
       config:
         # Where authentication should be set, either header or parameter
-        location: header
+        location: parameter
         # Name of the header / parameter
-        name: Authorization
+        name: key
         # Value of the header / parameter (i.e. API Key)
         value: <MY API KEY>
         # Prefix for header value
-        prefix: Bearer
+        # prefix: Bearer
 
 # List of MCP servers to be used
 mcps:
@@ -33,7 +31,7 @@ mcps:
     args:
       - -y
       - "@modelcontextprotocol/server-filesystem"
-      - /home/daniel/git/mcp-servers/
+      - /tmp
     # Environment variables (optional)
     env:
       MY_VAR: 123
