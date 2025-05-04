@@ -7,19 +7,40 @@ stages:
 cache:
   paths:
     - target/release
+    - target/x86_64-pc-windows-gnu
 
 variables:
   RUST_IMAGE: rustlang/rust:nightly
   PACKAGE_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/mcp-manager/${CI_COMMIT_TAG}/mcp-manager"
 
-build:
+build-mr:
+  stage: build
+  image: $RUST_IMAGE
+  script: cargo build --verbose
+  rules:
+    - !reference [.run_on_mr_default]
+
+build-release:
   stage: build
   image: $RUST_IMAGE
   script:
-    - cargo build --all-targets --release --verbose
+    - cargo build --release --verbose
   artifacts:
     paths:
       - target/release/mcp-manager
+  rules:
+    - !reference [.run_on_tag]
+
+build-release-windows:
+  stage: build
+  image: $RUST_IMAGE
+  script:
+    - apt update && apt install -y mingw-w64
+    - rustup target add x86_64-pc-windows-gnu
+    - cargo build --target x86_64-pc-windows-gnu --release --verbose
+  artifacts:
+    paths:
+      - target/x86_64-pc-windows-gnu/release/mcp-manager.exe
   rules:
     - !reference [.run_on_tag]
 
@@ -37,7 +58,7 @@ publish:
   image: curlimages/curl:latest
   script: |
     curl --header "JOB-TOKEN: $CI_JOB_TOKEN" \
-    --upload-file target/release/mcp-manager \
+    --upload-file "{target/release/mcp-manager,target/x86_64-pc-windows-gnu/release/mcp-manager.exe}" \
     "${PACKAGE_URL}"
   rules:
     - !reference [.run_on_tag]
@@ -60,3 +81,6 @@ release:
 
 .run_on_tag:
   if: $CI_COMMIT_TAG
+
+.run_on_mr_default:
+  if: $CI_PIPELINE_SOURCE == "merge_request_event" && $CI_MERGE_REQUEST_TARGET_BRANCH_NAME == $CI_DEFAULT_BRANCH
