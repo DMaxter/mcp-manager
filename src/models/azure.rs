@@ -1,10 +1,10 @@
-use std::{str::FromStr, sync::Arc};
+use std::str::FromStr;
 
 use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
 use reqwest::{Client, Error, Url};
-use rmcp::model::{JsonObject, Tool as RcmpTool};
-use serde::{Deserialize, Serialize};
+use rmcp::model::Tool as RcmpTool;
+use serde::Serialize;
 use serde_json::{from_str, json};
 use tracing::{Level, event, instrument};
 
@@ -14,7 +14,10 @@ use crate::{
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
         auth::{Auth, AuthLocation},
-        openai::ToolType,
+        openai::{
+            FinishReason, Function, Message, ResponseBody, Tool, ToolCall, ToolCallParams,
+            ToolChoice, ToolType,
+        },
     },
 };
 
@@ -66,89 +69,6 @@ impl From<ManagerBody> for RequestBody {
             tools: None,
         }
     }
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub struct Tool {
-    pub(crate) r#type: ToolType,
-    pub(crate) function: Function,
-}
-
-#[derive(Debug, Deserialize, Serialize)]
-pub(crate) struct Function {
-    pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) parameters: Arc<JsonObject>,
-}
-
-#[derive(Debug, Default, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub(crate) enum ToolChoice {
-    #[default]
-    Auto,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct ResponseBody {
-    pub(crate) choices: Vec<Choice>,
-    created: usize,
-    model: String,
-    object: String,
-    usage: UsageTokens,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct UsageTokens {
-    completion_tokens: usize,
-    prompt_tokens: usize,
-    total_tokens: usize,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct Choice {
-    pub(crate) finish_reason: FinishReason,
-    pub(crate) index: usize,
-    pub(crate) message: Message,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum FinishReason {
-    ToolCalls,
-    Stop,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(untagged)]
-pub(crate) enum Message {
-    TextMessage(TextMessage),
-    ToolCalls {
-        role: Role,
-        tool_calls: Vec<ToolCall>,
-    },
-    ToolOutput {
-        role: Role,
-        tool_call_id: String,
-        content: String,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ToolOutputResult {
-    result: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ToolCall {
-    function: ToolCallParams,
-    r#type: ToolType,
-    id: String,
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub(crate) struct ToolCallParams {
-    pub(crate) arguments: String,
-    pub(crate) name: String,
 }
 
 pub struct Azure {

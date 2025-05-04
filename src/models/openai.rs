@@ -7,38 +7,157 @@ use reqwest::{
 };
 use rmcp::model::{JsonObject, Tool as RcmpTool};
 use serde::{Deserialize, Serialize};
+use serde_json::{from_str, json};
 use tracing::{Level, event};
 
 use crate::{
     ManagerBody,
+    mcp::ToolCall as GeneralToolCall,
     models::{
-        AIModel, Message, ModelDecision,
+        AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
         auth::{Auth, AuthLocation},
     },
 };
 
-#[derive(Clone, Debug, Default, Deserialize, Serialize)]
-pub struct Body {
-    pub(crate) model: String,
-    pub(crate) input: Vec<Message>,
+#[derive(Debug, Default, Serialize)]
+pub(crate) struct RequestBody {
+    pub(crate) messages: Vec<Message>,
     pub(crate) temperature: Option<f64>,
+    pub(crate) max_tokens: Option<isize>,
     pub(crate) top_p: Option<f64>,
     pub(crate) tools: Option<Vec<Tool>>,
+    pub(crate) tool_choice: ToolChoice,
+    pub(crate) model: String,
+}
+
+impl From<ManagerBody> for RequestBody {
+    fn from(value: ManagerBody) -> Self {
+        RequestBody {
+            temperature: value.temperature,
+            max_tokens: value.max_tokens,
+            top_p: value.top_p,
+            messages: value
+                .messages
+                .into_iter()
+                .map(|message| match message {
+                    ManagerMessage::TextMessage(message) => Message::TextMessage(message),
+                    ManagerMessage::ToolOutput {
+                        call_id, output, ..
+                    } => Message::ToolOutput {
+                        role: Role::Tool,
+                        tool_call_id: call_id,
+                        content: output,
+                    },
+                    ManagerMessage::ToolCalls { role, tool_calls } => Message::ToolCalls {
+                        role,
+                        tool_calls: tool_calls
+                            .into_iter()
+                            .map(|call| ToolCall {
+                                function: ToolCallParams {
+                                    name: call.name,
+                                    arguments: json!(call.arguments).to_string(),
+                                },
+                                r#type: ToolType::Function,
+                                id: call.id,
+                            })
+                            .collect(),
+                    },
+                })
+                .collect(),
+            tool_choice: ToolChoice::Auto,
+            tools: None,
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Tool {
     pub(crate) r#type: ToolType,
-    pub(crate) name: String,
-    pub(crate) description: String,
-    pub(crate) parameters: Arc<JsonObject>,
-    pub(crate) strict: bool,
+    pub(crate) function: Function,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(crate) enum ToolType {
     Function,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct Function {
+    pub(crate) name: String,
+    pub(crate) description: String,
+    pub(crate) parameters: Arc<JsonObject>,
+}
+
+#[derive(Debug, Default, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub(crate) enum ToolChoice {
+    #[default]
+    Auto,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ResponseBody {
+    pub(crate) choices: Vec<Choice>,
+    created: usize,
+    model: String,
+    object: String,
+    usage: UsageTokens,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct UsageTokens {
+    completion_tokens: usize,
+    prompt_tokens: usize,
+    total_tokens: usize,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct Choice {
+    pub(crate) finish_reason: FinishReason,
+    pub(crate) index: usize,
+    pub(crate) message: Message,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum FinishReason {
+    ToolCalls,
+    Stop,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(untagged)]
+pub(crate) enum Message {
+    TextMessage(TextMessage),
+    ToolCalls {
+        role: Role,
+        tool_calls: Vec<ToolCall>,
+    },
+    ToolOutput {
+        role: Role,
+        tool_call_id: String,
+        content: String,
+    },
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct ToolOutputResult {
+    result: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct ToolCall {
+    pub(crate) function: ToolCallParams,
+    pub(crate) r#type: ToolType,
+    pub(crate) id: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub(crate) struct ToolCallParams {
+    pub(crate) arguments: String,
+    pub(crate) name: String,
 }
 
 pub struct OpenAI {
@@ -69,24 +188,10 @@ impl OpenAI {
                     )
                 }
             },
-            _ => panic!(
-                "Invalid authentication method for OpenAI! Supported: API Key in Request Parameters"
-            ),
+            _ => panic!("Invalid authentication method for OpenAI! Supported: API Key"),
         };
 
         OpenAI { client, url, model }
-    }
-}
-
-impl From<ManagerBody> for Body {
-    fn from(value: ManagerBody) -> Self {
-        Body {
-            temperature: value.temperature,
-            top_p: value.top_p,
-            input: value.messages,
-            tools: None,
-            ..Default::default()
-        }
     }
 }
 
@@ -97,7 +202,7 @@ impl AIModel for OpenAI {
         body: ManagerBody,
         tools: Vec<RcmpTool>,
     ) -> Result<Vec<ModelDecision>, Error> {
-        let mut body: Body = body.into();
+        let mut body: RequestBody = body.into();
 
         body.model = self.model.clone();
         body.tools = Some(
@@ -105,13 +210,16 @@ impl AIModel for OpenAI {
                 .into_iter()
                 .map(|tool: RcmpTool| Tool {
                     r#type: ToolType::Function,
-                    name: tool.name.into_owned(),
-                    description: tool.description.into_owned(),
-                    parameters: tool.input_schema,
-                    strict: false, // FIXME: allow this to be changed on the configuration
+                    function: Function {
+                        name: tool.name.into_owned(),
+                        description: tool.description.into_owned(),
+                        parameters: tool.input_schema,
+                    },
                 })
                 .collect(),
         );
+
+        event!(Level::DEBUG, "Request: {body:#?}");
 
         let response = self
             .client
@@ -124,6 +232,40 @@ impl AIModel for OpenAI {
 
         event!(Level::DEBUG, "Response: {response:?}");
 
-        Ok(vec![ModelDecision::TextMessage(String::new())])
+        let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
+            event!(Level::ERROR, "Couldn't deserialize response: {error}");
+
+            panic!()
+        });
+
+        if response.choices.len() > 1 {
+            event!(
+                Level::WARN,
+                "Model gave multiple choices, moving on with first one"
+            )
+        }
+
+        let choice = response.choices.remove(0);
+
+        Ok(vec![match choice.finish_reason {
+            FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
+                Message::TextMessage(TextMessage { role: _, content }) => content,
+                _ => todo!("Unknown response needs to be handled: {response:#?}"),
+            }),
+            FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {
+                Message::ToolCalls {
+                    role: _,
+                    tool_calls,
+                } => tool_calls
+                    .into_iter()
+                    .map(|call| GeneralToolCall {
+                        name: call.function.name,
+                        id: call.id,
+                        arguments: from_str(&call.function.arguments).unwrap(),
+                    })
+                    .collect(),
+                _ => todo!("Unknown response needs to be handled: {response:#?}"),
+            }),
+        }])
     }
 }
