@@ -7,6 +7,7 @@ use crate::{
     ManagerConfig, Workspace,
     mcp::local::LocalMcp,
     models::{
+        anthropic::Anthropic,
         auth::{Auth, AuthLocation},
         azure::Azure,
         gemini::Gemini,
@@ -35,7 +36,15 @@ enum Model {
     Azure {
         url: String,
         auth: AuthMethod,
+        #[serde(rename = "api-version")]
         api_version: String,
+    },
+    Anthropic {
+        url: String,
+        auth: AuthMethod,
+        #[serde(rename = "anthropic-version")]
+        anthropic_version: String,
+        model: String,
     },
 }
 
@@ -106,7 +115,8 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
         let auth = match model {
             Model::OpenAI(BaseModel { ref auth, .. })
             | Model::Gemini { ref auth, .. }
-            | Model::Azure { ref auth, .. } => get_auth(auth.to_owned()),
+            | Model::Azure { ref auth, .. }
+            | Model::Anthropic { ref auth, .. } => get_auth(auth.to_owned()),
         };
 
         config.models.insert(
@@ -119,6 +129,12 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                 Model::Azure {
                     url, api_version, ..
                 } => Arc::new(Azure::new(url, auth, api_version)),
+                Model::Anthropic {
+                    url,
+                    anthropic_version,
+                    model,
+                    ..
+                } => Arc::new(Anthropic::new(url, auth, model, anthropic_version)),
             },
         );
     }

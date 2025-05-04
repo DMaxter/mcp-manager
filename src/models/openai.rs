@@ -5,7 +5,7 @@ use reqwest::{
     Client, Error, Url,
     header::{HeaderMap, HeaderName, HeaderValue},
 };
-use rmcp::model::{JsonObject, Tool as RcmpTool};
+use rmcp::model::{JsonObject, Tool as RmcpTool};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json};
 use tracing::{Level, event};
@@ -200,7 +200,7 @@ impl AIModel for OpenAI {
     async fn call(
         &self,
         body: ManagerBody,
-        tools: Vec<RcmpTool>,
+        tools: Vec<RmcpTool>,
     ) -> Result<Vec<ModelDecision>, Error> {
         let mut body: RequestBody = body.into();
 
@@ -208,7 +208,7 @@ impl AIModel for OpenAI {
         body.tools = Some(
             tools
                 .into_iter()
-                .map(|tool: RcmpTool| Tool {
+                .map(|tool: RmcpTool| Tool {
                     r#type: ToolType::Function,
                     function: Function {
                         name: tool.name.into_owned(),

@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ManagerBody, mcp::ToolCall};
 
+pub mod anthropic;
 pub mod auth;
 pub mod azure;
 pub mod gemini;
