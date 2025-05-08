@@ -1,11 +1,6 @@
-use std::str::FromStr;
-
 use async_trait::async_trait;
 use rand::distr::{Alphanumeric, SampleString};
-use reqwest::{
-    Client, Error, Url,
-    header::{HeaderMap, HeaderName, HeaderValue},
-};
+use reqwest::{Error, Url};
 use rmcp::model::{JsonObject, Tool as RcmpTool};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, from_str};
@@ -16,8 +11,7 @@ use crate::{
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role as ManagerRole, TextMessage,
-        auth::{Auth, AuthLocation},
-        client::ModelClient,
+        auth::Auth, client::ModelClient,
     },
 };
 
@@ -219,8 +213,8 @@ pub struct Gemini {
 }
 
 impl Gemini {
-    pub fn new(url: String, auth: Auth) -> Gemini {
-        let (client, url) = ModelClient::new(url, auth, None, None);
+    pub async fn new(url: String, auth: Auth) -> Gemini {
+        let (client, url) = ModelClient::new(url, auth, None, None).await;
 
         Gemini { client, url }
     }

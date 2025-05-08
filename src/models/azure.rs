@@ -77,12 +77,12 @@ pub struct Azure {
 }
 
 impl Azure {
-    pub fn new(url: String, auth: Auth, api_version: String) -> Azure {
+    pub async fn new(url: String, auth: Auth, api_version: String) -> Azure {
         let mut params = HashMap::new();
 
         params.insert(String::from("api-version"), api_version);
 
-        let (client, url) = ModelClient::new(url, auth, None, Some(params));
+        let (client, url) = ModelClient::new(url, auth, None, Some(params)).await;
 
         Azure { client, url }
     }

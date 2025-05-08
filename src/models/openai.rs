@@ -164,8 +164,8 @@ pub struct OpenAI {
 }
 
 impl OpenAI {
-    pub fn new(url: String, auth: Auth, model: String) -> OpenAI {
-        let (client, url) = ModelClient::new(url, auth, None, None);
+    pub async fn new(url: String, auth: Auth, model: String) -> OpenAI {
+        let (client, url) = ModelClient::new(url, auth, None, None).await;
 
         OpenAI { client, url, model }
     }

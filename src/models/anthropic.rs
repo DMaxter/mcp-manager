@@ -21,7 +21,7 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
-    pub fn new(url: String, auth: Auth, model: String, version: String) -> Anthropic {
+    pub async fn new(url: String, auth: Auth, model: String, version: String) -> Anthropic {
         let mut headers = HeaderMap::new();
 
         headers.insert(
@@ -29,7 +29,7 @@ impl Anthropic {
             HeaderValue::from_str(&version).unwrap(),
         );
 
-        let (client, url) = ModelClient::new(url, auth, Some(headers), None);
+        let (client, url) = ModelClient::new(url, auth, Some(headers), None).await;
 
         Anthropic { client, url, model }
     }
