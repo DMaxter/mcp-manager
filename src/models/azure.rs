@@ -1,14 +1,14 @@
 use std::collections::HashMap;
 
 use async_trait::async_trait;
-use reqwest::{Error, Url};
+use reqwest::Url;
 use rmcp::model::Tool as RcmpTool;
 use serde::Serialize;
 use serde_json::{from_str, json};
 use tracing::{Level, event, instrument};
 
 use crate::{
-    ManagerBody,
+    Error as ManagerError, ManagerBody,
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
@@ -77,12 +77,12 @@ pub struct Azure {
 }
 
 impl Azure {
-    pub fn new(url: String, auth: Auth, api_version: String) -> Azure {
+    pub async fn new(url: String, auth: Auth, api_version: String) -> Azure {
         let mut params = HashMap::new();
 
         params.insert(String::from("api-version"), api_version);
 
-        let (client, url) = ModelClient::new(url, auth, None, Some(params));
+        let (client, url) = ModelClient::new(url, auth, None, Some(params)).await;
 
         Azure { client, url }
     }
@@ -95,7 +95,7 @@ impl AIModel for Azure {
         &self,
         body: ManagerBody,
         tools: Vec<RcmpTool>,
-    ) -> Result<Vec<ModelDecision>, Error> {
+    ) -> Result<Vec<ModelDecision>, ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.tools = Some(

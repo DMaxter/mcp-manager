@@ -2,12 +2,7 @@
 
 use std::{collections::HashMap, sync::Arc};
 
-use axum::{
-    Extension, Json,
-    body::Body,
-    extract::Path,
-    response::{IntoResponse, Response},
-};
+use axum::{Extension, Json, extract::Path, response::IntoResponse};
 use futures::future::try_join_all;
 use mcp::McpServer;
 use models::{
@@ -15,15 +10,17 @@ use models::{
 };
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tokio::sync::RwLock;
 use tracing::{Level, event, instrument};
 
 use crate::models::AIModel;
 
 pub mod config;
+pub(crate) mod error;
 pub mod mcp;
 pub mod models;
+
+pub use error::Error;
 
 type HandlerConfig = Arc<RwLock<HashMap<String, Arc<Workspace>>>>;
 
@@ -54,21 +51,6 @@ pub struct Workspace {
     name: String,
     pub model: Arc<dyn AIModel + Send>,
     mcps: Vec<Arc<dyn McpServer + Send>>,
-}
-
-#[derive(Debug, Serialize)]
-pub struct Error {
-    status: u16,
-    message: String,
-}
-
-impl IntoResponse for Error {
-    fn into_response(self) -> Response {
-        Response::builder()
-            .status(self.status)
-            .body(Body::from(json!(self).to_string()))
-            .unwrap()
-    }
 }
 
 #[instrument(skip(config, body))]

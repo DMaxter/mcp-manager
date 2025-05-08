@@ -129,18 +129,18 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
             name,
             match model {
                 Model::OpenAI(BaseModel { url, model, .. }) => {
-                    Arc::new(OpenAI::new(url, auth, model))
+                    Arc::new(OpenAI::new(url, auth, model).await)
                 }
-                Model::Gemini { url, .. } => Arc::new(Gemini::new(url, auth)),
+                Model::Gemini { url, .. } => Arc::new(Gemini::new(url, auth).await),
                 Model::Azure {
                     url, api_version, ..
-                } => Arc::new(Azure::new(url, auth, api_version)),
+                } => Arc::new(Azure::new(url, auth, api_version).await),
                 Model::Anthropic {
                     url,
                     anthropic_version,
                     model,
                     ..
-                } => Arc::new(Anthropic::new(url, auth, model, anthropic_version)),
+                } => Arc::new(Anthropic::new(url, auth, model, anthropic_version).await),
             },
         );
     }

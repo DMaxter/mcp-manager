@@ -8,7 +8,7 @@ use serde_json::{from_str, json};
 use tracing::{Level, event};
 
 use crate::{
-    ManagerBody,
+    Error as ManagerError, ManagerBody,
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage, auth::Auth,
@@ -164,8 +164,8 @@ pub struct OpenAI {
 }
 
 impl OpenAI {
-    pub fn new(url: String, auth: Auth, model: String) -> OpenAI {
-        let (client, url) = ModelClient::new(url, auth, None, None);
+    pub async fn new(url: String, auth: Auth, model: String) -> OpenAI {
+        let (client, url) = ModelClient::new(url, auth, None, None).await;
 
         OpenAI { client, url, model }
     }
@@ -177,7 +177,7 @@ impl AIModel for OpenAI {
         &self,
         body: ManagerBody,
         tools: Vec<RmcpTool>,
-    ) -> Result<Vec<ModelDecision>, Error> {
+    ) -> Result<Vec<ModelDecision>, ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.model = self.model.clone();

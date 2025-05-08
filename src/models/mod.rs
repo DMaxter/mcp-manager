@@ -1,9 +1,8 @@
 use async_trait::async_trait;
-use reqwest::Error;
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
 
-use crate::{ManagerBody, mcp::ToolCall};
+use crate::{Error as ManagerError, ManagerBody, mcp::ToolCall};
 
 pub mod anthropic;
 pub mod auth;
@@ -14,7 +13,11 @@ pub mod openai;
 
 #[async_trait]
 pub trait AIModel: Sync {
-    async fn call(&self, body: ManagerBody, tools: Vec<Tool>) -> Result<Vec<ModelDecision>, Error>;
+    async fn call(
+        &self,
+        body: ManagerBody,
+        tools: Vec<Tool>,
+    ) -> Result<Vec<ModelDecision>, ManagerError>;
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

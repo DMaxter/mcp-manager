@@ -1,23 +1,17 @@
-use std::str::FromStr;
-
 use async_trait::async_trait;
 use rand::distr::{Alphanumeric, SampleString};
-use reqwest::{
-    Client, Error, Url,
-    header::{HeaderMap, HeaderName, HeaderValue},
-};
+use reqwest::Url;
 use rmcp::model::{JsonObject, Tool as RcmpTool};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, from_str};
 use tracing::{Level, event, instrument};
 
 use crate::{
-    ManagerBody,
+    Error as ManagerError, ManagerBody,
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role as ManagerRole, TextMessage,
-        auth::{Auth, AuthLocation},
-        client::ModelClient,
+        auth::Auth, client::ModelClient,
     },
 };
 
@@ -219,8 +213,8 @@ pub struct Gemini {
 }
 
 impl Gemini {
-    pub fn new(url: String, auth: Auth) -> Gemini {
-        let (client, url) = ModelClient::new(url, auth, None, None);
+    pub async fn new(url: String, auth: Auth) -> Gemini {
+        let (client, url) = ModelClient::new(url, auth, None, None).await;
 
         Gemini { client, url }
     }
@@ -233,7 +227,7 @@ impl AIModel for Gemini {
         &self,
         body: ManagerBody,
         tools: Vec<RcmpTool>,
-    ) -> Result<Vec<ModelDecision>, Error> {
+    ) -> Result<Vec<ModelDecision>, ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.tools = Some(vec![Tool {

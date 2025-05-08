@@ -2,16 +2,19 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Error, Url};
+use reqwest::Url;
 use rmcp::model::Tool as RmcpTool;
 use serde_json::from_str;
 use tracing::{Level, event, instrument};
 
-use crate::models::{
-    AIModel, ManagerBody, ModelDecision, TextMessage, ToolCall as GeneralToolCall,
-    auth::Auth,
-    client::ModelClient,
-    openai::{FinishReason, Function, Message, RequestBody, ResponseBody, Tool, ToolType},
+use crate::{
+    Error as ManagerError,
+    models::{
+        AIModel, ManagerBody, ModelDecision, TextMessage, ToolCall as GeneralToolCall,
+        auth::Auth,
+        client::ModelClient,
+        openai::{FinishReason, Function, Message, RequestBody, ResponseBody, Tool, ToolType},
+    },
 };
 
 pub struct Anthropic {
@@ -21,7 +24,7 @@ pub struct Anthropic {
 }
 
 impl Anthropic {
-    pub fn new(url: String, auth: Auth, model: String, version: String) -> Anthropic {
+    pub async fn new(url: String, auth: Auth, model: String, version: String) -> Anthropic {
         let mut headers = HeaderMap::new();
 
         headers.insert(
@@ -29,7 +32,7 @@ impl Anthropic {
             HeaderValue::from_str(&version).unwrap(),
         );
 
-        let (client, url) = ModelClient::new(url, auth, Some(headers), None);
+        let (client, url) = ModelClient::new(url, auth, Some(headers), None).await;
 
         Anthropic { client, url, model }
     }
@@ -42,7 +45,7 @@ impl AIModel for Anthropic {
         &self,
         body: ManagerBody,
         tools: Vec<RmcpTool>,
-    ) -> Result<Vec<ModelDecision>, Error> {
+    ) -> Result<Vec<ModelDecision>, ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.model = self.model.clone();
