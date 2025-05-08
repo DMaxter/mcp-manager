@@ -8,6 +8,7 @@ use crate::{ManagerBody, mcp::ToolCall};
 pub mod anthropic;
 pub mod auth;
 pub mod azure;
+pub mod client;
 pub mod gemini;
 pub mod openai;
 

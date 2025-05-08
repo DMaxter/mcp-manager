@@ -1,8 +1,7 @@
-use std::str::FromStr;
+use std::collections::HashMap;
 
 use async_trait::async_trait;
-use axum::http::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, Error, Url};
+use reqwest::{Error, Url};
 use rmcp::model::Tool as RcmpTool;
 use serde::Serialize;
 use serde_json::{from_str, json};
@@ -13,7 +12,8 @@ use crate::{
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
-        auth::{Auth, AuthLocation},
+        auth::Auth,
+        client::ModelClient,
         openai::{
             FinishReason, Function, Message, ResponseBody, Tool, ToolCall, ToolCallParams,
             ToolChoice, ToolType,
@@ -73,38 +73,16 @@ impl From<ManagerBody> for RequestBody {
 
 pub struct Azure {
     url: Url,
-    client: Client,
+    client: ModelClient,
 }
 
 impl Azure {
     pub fn new(url: String, auth: Auth, api_version: String) -> Azure {
-        let (client, url) = match auth {
-            Auth::ApiKey(location) => match location {
-                AuthLocation::Params(key, value) => (
-                    Client::new(),
-                    Url::parse_with_params(
-                        &url,
-                        &[(key, value), (String::from("api-version"), api_version)],
-                    )
-                    .expect("Invalid URL"),
-                ),
-                AuthLocation::Header(header, value) => {
-                    let mut headers = HeaderMap::new();
+        let mut params = HashMap::new();
 
-                    headers.insert(
-                        HeaderName::from_str(&header).unwrap(),
-                        HeaderValue::from_str(&value).unwrap(),
-                    );
+        params.insert(String::from("api-version"), api_version);
 
-                    (
-                        Client::builder().default_headers(headers).build().unwrap(),
-                        Url::parse_with_params(&url, &[("api-version", api_version)])
-                            .expect("Invalid URL"),
-                    )
-                }
-            },
-            _ => panic!("Invalid authentication method for Azure! Supported: API Key in headers"),
-        };
+        let (client, url) = ModelClient::new(url, auth, None, Some(params));
 
         Azure { client, url }
     }
@@ -134,18 +112,7 @@ impl AIModel for Azure {
                 .collect(),
         );
 
-        event!(Level::DEBUG, "Request: {body:#?}");
-
-        let response: String = self
-            .client
-            .post(self.url.clone())
-            .json(&body)
-            .send()
-            .await?
-            .text()
-            .await?;
-
-        event!(Level::DEBUG, "Response: {response:?}");
+        let response: String = self.client.call(self.url.clone(), &body).await?;
 
         let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");

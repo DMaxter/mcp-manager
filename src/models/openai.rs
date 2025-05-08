@@ -1,10 +1,7 @@
-use std::{str::FromStr, sync::Arc};
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use reqwest::{
-    Client, Error, Url,
-    header::{HeaderMap, HeaderName, HeaderValue},
-};
+use reqwest::{Error, Url};
 use rmcp::model::{JsonObject, Tool as RmcpTool};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json};
@@ -14,8 +11,8 @@ use crate::{
     ManagerBody,
     mcp::ToolCall as GeneralToolCall,
     models::{
-        AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
-        auth::{Auth, AuthLocation},
+        AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage, auth::Auth,
+        client::ModelClient,
     },
 };
 
@@ -162,34 +159,13 @@ pub(crate) struct ToolCallParams {
 
 pub struct OpenAI {
     url: Url,
-    client: Client,
+    client: ModelClient,
     model: String,
 }
 
 impl OpenAI {
     pub fn new(url: String, auth: Auth, model: String) -> OpenAI {
-        let (client, url) = match auth {
-            Auth::ApiKey(location) => match location {
-                AuthLocation::Params(key, value) => (
-                    Client::new(),
-                    Url::parse_with_params(&url, &[(key, value)]).expect("Invalid URL"),
-                ),
-                AuthLocation::Header(header, value) => {
-                    let mut headers = HeaderMap::new();
-
-                    headers.insert(
-                        HeaderName::from_str(&header).unwrap(),
-                        HeaderValue::from_str(&value).unwrap(),
-                    );
-
-                    (
-                        Client::builder().default_headers(headers).build().unwrap(),
-                        Url::parse(&url).expect("Invalid URL"),
-                    )
-                }
-            },
-            _ => panic!("Invalid authentication method for OpenAI! Supported: API Key"),
-        };
+        let (client, url) = ModelClient::new(url, auth, None, None);
 
         OpenAI { client, url, model }
     }
@@ -219,18 +195,7 @@ impl AIModel for OpenAI {
                 .collect(),
         );
 
-        event!(Level::DEBUG, "Request: {body:#?}");
-
-        let response = self
-            .client
-            .post(self.url.clone())
-            .json(&body)
-            .send()
-            .await?
-            .text()
-            .await?;
-
-        event!(Level::DEBUG, "Response: {response:?}");
+        let response = self.client.call(self.url.clone(), &body).await?;
 
         let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");

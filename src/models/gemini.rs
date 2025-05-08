@@ -17,6 +17,7 @@ use crate::{
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role as ManagerRole, TextMessage,
         auth::{Auth, AuthLocation},
+        client::ModelClient,
     },
 };
 
@@ -214,35 +215,12 @@ pub(crate) struct FunctionContent {
 
 pub struct Gemini {
     url: Url,
-    client: Client,
+    client: ModelClient,
 }
 
 impl Gemini {
     pub fn new(url: String, auth: Auth) -> Gemini {
-        let (client, url) = match auth {
-            Auth::ApiKey(location) => match location {
-                AuthLocation::Params(key, value) => (
-                    Client::new(),
-                    Url::parse_with_params(&url, &[(key, value)]).expect("Invalid URL"),
-                ),
-                AuthLocation::Header(header, value) => {
-                    let mut headers = HeaderMap::new();
-
-                    headers.insert(
-                        HeaderName::from_str(&header).unwrap(),
-                        HeaderValue::from_str(&value).unwrap(),
-                    );
-
-                    (
-                        Client::builder().default_headers(headers).build().unwrap(),
-                        Url::parse(&url).expect("Invalid URL"),
-                    )
-                }
-            },
-            _ => panic!(
-                "Invalid authentication method for Gemini! Supported: API Key in headers or request parameters"
-            ),
-        };
+        let (client, url) = ModelClient::new(url, auth, None, None);
 
         Gemini { client, url }
     }
@@ -274,18 +252,7 @@ impl AIModel for Gemini {
                 .collect(),
         }]);
 
-        event!(Level::DEBUG, "Request: {body:#?}");
-
-        let response: String = self
-            .client
-            .post(self.url.clone())
-            .json(&body)
-            .send()
-            .await?
-            .text()
-            .await?;
-
-        event!(Level::DEBUG, "Response: {response:#?}");
+        let response: String = self.client.call(self.url.clone(), &body).await?;
 
         let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");

@@ -2,20 +2,21 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 use axum::http::{HeaderMap, HeaderName, HeaderValue};
-use reqwest::{Client, Error, Url};
+use reqwest::{Error, Url};
 use rmcp::model::Tool as RmcpTool;
 use serde_json::from_str;
 use tracing::{Level, event, instrument};
 
 use crate::models::{
     AIModel, ManagerBody, ModelDecision, TextMessage, ToolCall as GeneralToolCall,
-    auth::{Auth, AuthLocation},
+    auth::Auth,
+    client::ModelClient,
     openai::{FinishReason, Function, Message, RequestBody, ResponseBody, Tool, ToolType},
 };
 
 pub struct Anthropic {
     url: Url,
-    client: Client,
+    client: ModelClient,
     model: String,
 }
 
@@ -28,26 +29,7 @@ impl Anthropic {
             HeaderValue::from_str(&version).unwrap(),
         );
 
-        let (client, url) = match auth {
-            Auth::ApiKey(location) => match location {
-                AuthLocation::Params(key, value) => (
-                    Client::builder().default_headers(headers).build().unwrap(),
-                    Url::parse_with_params(&url, &[(key, value)]).expect("Invalid URL"),
-                ),
-                AuthLocation::Header(header, value) => {
-                    headers.insert(
-                        HeaderName::from_str(&header).unwrap(),
-                        HeaderValue::from_str(&value).unwrap(),
-                    );
-
-                    (
-                        Client::builder().default_headers(headers).build().unwrap(),
-                        Url::parse(&url).expect("Invalid URL"),
-                    )
-                }
-            },
-            _ => panic!("Invalid authentication method for OpenAI! Supported: API Key"),
-        };
+        let (client, url) = ModelClient::new(url, auth, Some(headers), None);
 
         Anthropic { client, url, model }
     }
@@ -78,18 +60,7 @@ impl AIModel for Anthropic {
                 .collect(),
         );
 
-        event!(Level::DEBUG, "Request: {body:#?}");
-
-        let response = self
-            .client
-            .post(self.url.clone())
-            .json(&body)
-            .send()
-            .await?
-            .text()
-            .await?;
-
-        event!(Level::DEBUG, "Response: {response:?}");
+        let response = self.client.call(self.url.clone(), &body).await?;
 
         let mut response = from_str::<ResponseBody>(&response).unwrap_or_else(|error| {
             event!(Level::ERROR, "Couldn't deserialize response: {error}");

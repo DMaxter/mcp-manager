@@ -30,18 +30,18 @@ struct FileConfig {
 enum Model {
     Gemini {
         url: String,
-        auth: AuthMethod,
+        auth: Option<AuthMethod>,
     },
     OpenAI(BaseModel),
     Azure {
         url: String,
-        auth: AuthMethod,
+        auth: Option<AuthMethod>,
         #[serde(rename = "api-version")]
         api_version: String,
     },
     Anthropic {
         url: String,
-        auth: AuthMethod,
+        auth: Option<AuthMethod>,
         #[serde(rename = "anthropic-version")]
         anthropic_version: String,
         model: String,
@@ -51,7 +51,7 @@ enum Model {
 #[derive(Debug, Deserialize)]
 struct BaseModel {
     url: String,
-    auth: AuthMethod,
+    auth: Option<AuthMethod>,
     model: String,
 }
 
@@ -59,6 +59,12 @@ struct BaseModel {
 #[serde(rename_all = "lowercase", tag = "type", content = "config")]
 enum AuthMethod {
     ApiKey(AuthConfig),
+    OAuth2 {
+        url: String,
+        client_id: String,
+        client_secret: String,
+        scope: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -239,24 +245,39 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     Ok(config)
 }
 
-fn get_auth(auth: AuthMethod) -> Auth {
-    match auth {
-        AuthMethod::ApiKey(location) => match location {
-            AuthConfig::Parameter { name, value } => {
-                Auth::ApiKey(AuthLocation::Params(name, value))
-            }
-            AuthConfig::Header {
-                name,
-                value,
-                prefix,
-            } => Auth::ApiKey(AuthLocation::Header(
-                name,
-                if let Some(prefix) = prefix {
-                    format!("{prefix} {value}")
-                } else {
-                    value
-                },
-            )),
-        },
+fn get_auth(auth: Option<AuthMethod>) -> Auth {
+    if let Some(auth) = auth {
+        match auth {
+            AuthMethod::ApiKey(location) => match location {
+                AuthConfig::Parameter { name, value } => {
+                    Auth::ApiKey(AuthLocation::Params(name, value))
+                }
+                AuthConfig::Header {
+                    name,
+                    value,
+                    prefix,
+                } => Auth::ApiKey(AuthLocation::Header(
+                    name,
+                    if let Some(prefix) = prefix {
+                        format!("{prefix} {value}")
+                    } else {
+                        value
+                    },
+                )),
+            },
+            AuthMethod::OAuth2 {
+                url,
+                client_id,
+                client_secret,
+                scope,
+            } => Auth::OAuth2 {
+                url,
+                client_id,
+                client_secret,
+                scope,
+            },
+        }
+    } else {
+        Auth::NoAuth
     }
 }
