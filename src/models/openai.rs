@@ -97,23 +97,27 @@ pub(crate) enum ToolChoice {
 #[derive(Debug, Deserialize)]
 pub(crate) struct ResponseBody {
     pub(crate) choices: Vec<Choice>,
-    created: usize,
-    model: String,
-    object: String,
-    usage: UsageTokens,
+    pub(crate) usage: UsageTokens,
 }
 
-#[derive(Debug, Deserialize)]
-pub(crate) struct UsageTokens {
-    completion_tokens: usize,
-    prompt_tokens: usize,
-    total_tokens: usize,
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct UsageTokens {
+    pub(crate) completion_tokens: usize,
+    pub(crate) prompt_tokens: usize,
+    pub(crate) total_tokens: usize,
+}
+
+impl UsageTokens {
+    pub(crate) fn add(&mut self, other: &UsageTokens) {
+        self.completion_tokens += other.completion_tokens;
+        self.prompt_tokens += other.prompt_tokens;
+        self.total_tokens += other.total_tokens;
+    }
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct Choice {
     pub(crate) finish_reason: FinishReason,
-    pub(crate) index: usize,
     pub(crate) message: Message,
 }
 
@@ -177,7 +181,7 @@ impl AIModel for OpenAI {
         &self,
         body: ManagerBody,
         tools: Vec<RmcpTool>,
-    ) -> Result<Vec<ModelDecision>, ManagerError> {
+    ) -> Result<(Vec<ModelDecision>, UsageTokens), ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.model = self.model.clone();
@@ -212,25 +216,28 @@ impl AIModel for OpenAI {
 
         let choice = response.choices.remove(0);
 
-        Ok(vec![match choice.finish_reason {
-            FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
-                Message::TextMessage(TextMessage { role: _, content }) => content,
-                _ => todo!("Unknown response needs to be handled: {response:#?}"),
-            }),
-            FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {
-                Message::ToolCalls {
-                    role: _,
-                    tool_calls,
-                } => tool_calls
-                    .into_iter()
-                    .map(|call| GeneralToolCall {
-                        name: call.function.name,
-                        id: call.id,
-                        arguments: from_str(&call.function.arguments).unwrap(),
-                    })
-                    .collect(),
-                _ => todo!("Unknown response needs to be handled: {response:#?}"),
-            }),
-        }])
+        Ok((
+            vec![match choice.finish_reason {
+                FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
+                    Message::TextMessage(TextMessage { role: _, content }) => content,
+                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
+                }),
+                FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {
+                    Message::ToolCalls {
+                        role: _,
+                        tool_calls,
+                    } => tool_calls
+                        .into_iter()
+                        .map(|call| GeneralToolCall {
+                            name: call.function.name,
+                            id: call.id,
+                            arguments: from_str(&call.function.arguments).unwrap(),
+                        })
+                        .collect(),
+                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
+                }),
+            }],
+            response.usage,
+        ))
     }
 }

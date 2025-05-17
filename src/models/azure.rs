@@ -8,7 +8,7 @@ use serde_json::{from_str, json};
 use tracing::{Level, event, instrument};
 
 use crate::{
-    Error as ManagerError, ManagerBody,
+    Error as ManagerError, ManagerBody, UsageTokens,
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage,
@@ -95,7 +95,7 @@ impl AIModel for Azure {
         &self,
         body: ManagerBody,
         tools: Vec<RcmpTool>,
-    ) -> Result<Vec<ModelDecision>, ManagerError> {
+    ) -> Result<(Vec<ModelDecision>, UsageTokens), ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.tools = Some(
@@ -129,25 +129,28 @@ impl AIModel for Azure {
 
         let choice = response.choices.remove(0);
 
-        Ok(vec![match choice.finish_reason {
-            FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
-                Message::TextMessage(TextMessage { role: _, content }) => content,
-                _ => todo!("Unknown response needs to be handled: {response:#?}"),
-            }),
-            FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {
-                Message::ToolCalls {
-                    role: _,
-                    tool_calls,
-                } => tool_calls
-                    .into_iter()
-                    .map(|call| GeneralToolCall {
-                        name: call.function.name,
-                        id: call.id,
-                        arguments: from_str(&call.function.arguments).unwrap(),
-                    })
-                    .collect(),
-                _ => todo!("Unknown response needs to be handled: {response:#?}"),
-            }),
-        }])
+        Ok((
+            vec![match choice.finish_reason {
+                FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
+                    Message::TextMessage(TextMessage { role: _, content }) => content,
+                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
+                }),
+                FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {
+                    Message::ToolCalls {
+                        role: _,
+                        tool_calls,
+                    } => tool_calls
+                        .into_iter()
+                        .map(|call| GeneralToolCall {
+                            name: call.function.name,
+                            id: call.id,
+                            arguments: from_str(&call.function.arguments).unwrap(),
+                        })
+                        .collect(),
+                    _ => todo!("Unknown response needs to be handled: {response:#?}"),
+                }),
+            }],
+            response.usage,
+        ))
     }
 }

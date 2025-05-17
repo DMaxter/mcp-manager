@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
 
-use crate::{Error as ManagerError, ManagerBody, mcp::ToolCall};
+use crate::{Error as ManagerError, ManagerBody, UsageTokens, mcp::ToolCall};
 
 pub mod anthropic;
 pub mod auth;
@@ -17,7 +17,7 @@ pub trait AIModel: Sync {
         &self,
         body: ManagerBody,
         tools: Vec<Tool>,
-    ) -> Result<Vec<ModelDecision>, ManagerError>;
+    ) -> Result<(Vec<ModelDecision>, UsageTokens), ManagerError>;
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]

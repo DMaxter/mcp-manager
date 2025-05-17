@@ -5,9 +5,7 @@ use std::{collections::HashMap, sync::Arc};
 use axum::{Extension, Json, extract::Path, response::IntoResponse};
 use futures::future::try_join_all;
 use mcp::McpServer;
-use models::{
-    Message, ModelDecision, Role, TextMessage, ToolOutputType, openai::Tool as OpenAITool,
-};
+use models::{Message, ModelDecision, Role, TextMessage, ToolOutputType};
 use rmcp::model::Tool;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -21,6 +19,7 @@ pub mod mcp;
 pub mod models;
 
 pub use error::Error;
+pub use models::openai::UsageTokens;
 
 type HandlerConfig = Arc<RwLock<HashMap<String, Arc<Workspace>>>>;
 
@@ -33,6 +32,7 @@ pub struct ManagerBody {
     pub(crate) max_tokens: Option<isize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) top_p: Option<f64>,
+    pub(crate) usage: Option<UsageTokens>,
 }
 
 impl ManagerBody {
@@ -86,6 +86,8 @@ pub async fn workspace_handler(
 
         let tools: Vec<Tool> = tools.into_iter().flatten().collect();
 
+        let mut total_usage = UsageTokens::default();
+
         loop {
             let response = workspace
                 .model
@@ -95,7 +97,11 @@ pub async fn workspace_handler(
 
             let mut tool_call = false;
 
-            for decision in response.into_iter() {
+            let (decisions, usage) = response;
+
+            total_usage.add(&usage);
+
+            for decision in decisions.into_iter() {
                 match decision {
                     ModelDecision::ToolCalls(calls) => {
                         tool_call = true;
@@ -139,6 +145,8 @@ pub async fn workspace_handler(
 
             // If LLM doesn't want to call anything, just return all the messages
             if !tool_call {
+                body.usage = Some(total_usage);
+
                 break;
             }
         }

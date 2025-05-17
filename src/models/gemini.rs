@@ -7,7 +7,7 @@ use serde_json::{Value, from_str};
 use tracing::{Level, event, instrument};
 
 use crate::{
-    Error as ManagerError, ManagerBody,
+    Error as ManagerError, ManagerBody, UsageTokens as ManagerUsage,
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role as ManagerRole, TextMessage,
@@ -149,7 +149,6 @@ pub(crate) enum Part {
 struct ResponseBody {
     candidates: Vec<Candidate>,
     usage_metadata: UsageTokens,
-    model_version: String,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -157,7 +156,6 @@ struct ResponseBody {
 struct Candidate {
     content: Message,
     finish_reason: FinishReason,
-    avg_logprobs: f64,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -172,15 +170,6 @@ struct UsageTokens {
     prompt_token_count: usize,
     candidates_token_count: usize,
     total_token_count: usize,
-    prompt_tokens_details: Vec<TokenDetails>,
-    candidates_tokens_details: Vec<TokenDetails>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct TokenDetails {
-    modality: Modality,
-    token_count: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -227,7 +216,7 @@ impl AIModel for Gemini {
         &self,
         body: ManagerBody,
         tools: Vec<RcmpTool>,
-    ) -> Result<Vec<ModelDecision>, ManagerError> {
+    ) -> Result<(Vec<ModelDecision>, ManagerUsage), ManagerError> {
         let mut body: RequestBody = body.into();
 
         body.tools = Some(vec![Tool {
@@ -301,7 +290,14 @@ impl AIModel for Gemini {
             }
         }
 
-        Ok(result)
+        Ok((
+            result,
+            ManagerUsage {
+                completion_tokens: response.usage_metadata.candidates_token_count,
+                prompt_tokens: response.usage_metadata.prompt_token_count,
+                total_tokens: response.usage_metadata.total_token_count,
+            },
+        ))
     }
 }
 
