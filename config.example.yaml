@@ -1,14 +1,29 @@
+# Configuration file for MCP Manager
+#
+# Everything marked as optional can be removed if not needed
+
 # List of models to be used
 models:
   # Name of a model to be referenced in the workspaces
   gemini:
     # URL of the model
-    url: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-    # Type of model, either: gemini or azure
+    #
+    # Example with URL for Gemini 2.0 Flash
+    url: https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent
+    # Type of model
+    #
+    # Supported types: openai, azure, anthropic, gemini
+    # See below for structure details
     type: gemini
-    # Authentication method for the model
+    # Authentication method for the model (optional)
+    #
+    # All models can use all types of authentication
+    # If absent, doesn't try to authenticate to the model
     auth:
-      # Only apikey for the moment
+      # API Key authentication
+      #
+      # See below for other types
+      # Currently supports: `apikey` and `oauth2`
       type: apikey
       config:
         # Where authentication should be set, either header or parameter
@@ -19,24 +34,76 @@ models:
         value: <MY API KEY>
         # Prefix for header value
         # prefix: Bearer
+  azure:
+    url: <MY AZURE URL>
+    type: azure
+    # Name of the model
+    #
+    # Required for azure type
+    model: GPT-4o
+    # Version of the API
+    #
+    # Required for `azure` type
+    api-version: 2025-02-01-preview
+    auth:
+      # OAuth2 authentication using client credentials
+      #
+      # Only supports Bearer tokens
+      type: oauth2
+      config:
+        # Token URL
+        url: <AUTH URL>
+        client_id: <CLIENT ID>
+        client_secret: <CLIENT SECRET>
+        # Token scope (optional)
+        scope: <MY SCOPE>
+  ollama:
+    url: <MY OLLAMA URL>
+    type: openai
+    # Required for OpenAI models
+    model: qwen3:8b
+    # No auth block, so it is used without authentication
+  anthropic:
+    url: https://api.anthropic.com/v1/messages
+    type: anthropic
+    # Required for Anthropic models
+    model: claude-3-7-sonnet-20250219
+    # Version of the API
+    #
+    # Required for Anthropic models
+    anthropic-version: 2023-06-01
 
 # List of MCP servers to be used
 mcps:
   # Name of a MCP server to be referenced in the workspaces
+  #
   # The downward structure is similar to what we should give to Claude when using Claude for Desktop
   filesystem:
-    # Command
+    # Local command name
     command: npx
-    # Arguments (optional)
+    # Arguments for command (optional)
     args:
       - -y
       - "@modelcontextprotocol/server-filesystem"
       - /tmp
     # Environment variables (optional)
+    #
+    # KEY: VALUE
     env:
       MY_VAR: 123
+    # Filter the tools that can be used by their name (optional)
+    #
+    # Works as a whitelist with `include` or as a blacklist with `exclude`
+    # Either `include` or `exclude` should be used, not both simultaneously
+    filter:
+      # Allow only certain tools to be used
+      include:
+        - list_directory # Tool name
+      # Exclude certain tools from the toolset
+      # exclude:
+      #   - read_file
 
-# List of workspaces to have available
+# List of workspaces to expose
 workspaces:
   # Name for the workspace
   gemini:
