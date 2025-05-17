@@ -1,6 +1,6 @@
 # MCP Manager
 
-[![CI](https://gitlab.com/DMaxter/mcp-manager/badges/main/pipeline.svg)](https://gitlab.com/DMaxter/mcp-manager/-/pipelines?page=1&scope=all&ref=main)
+<!--[![CI](https://gitlab.com/DMaxter/mcp-manager/badges/main/pipeline.svg)](https://gitlab.com/DMaxter/mcp-manager/-/pipelines?page=1&scope=all&ref=main)-->
 [![Release](https://gitlab.com/DMaxter/mcp-manager/-/badges/release.svg)](https://gitlab.com/DMaxter/mcp-manager/-/releases/permalink/latest)
 
 MCP Manager acts as a bridge between Large Language Models (LLMs) and MCP servers. It allows you to interact with remote and local APIs using natural language prompts via supported chat completion APIs.
@@ -14,17 +14,33 @@ An MCP server is a middleware that currently sits between LLMs and APIs allowing
 If you want to learn more, head over to <https://mcp.so> and scroll to the bottom for the FAQ section.
 
 
+### Why MCP Manager?
+
+Because to the best of my knowledge there is no other tool that is generic enough to be able to integrate MCP servers with most LLM vendors without much effort. It is just a config file and then it can be used just like you would call your model directly.
+
+
+### Where does MCP Manager sit?
+
+![MCP Manager at the center with a user calling it on the left, two LLMs connected on the right and two MCP server connected as well at the bottom](media/architecture.png)
+
+
 ## Features
 
-* Integrates with various LLMs (Gemini, Azure OpenAI currently supported)
+* Integrates with various LLMs
 * Enables LLM interaction with MCP servers
 * Flexible workspace configuration via a single YAML file
-* Supports API Key authentication (OAuth 2.0 planned)
+* Supports models without authentication, with API Key or with OAuth2 Bearer tokens
 * Exposes a simple HTTP API for sending prompts, in the OpenAI format
+* Control LLM response parameters(`max_tokens`, `temperature`, `top_k`) directly in the request body
+* Filter which MCP server's tools should be used or not
+* Analysis of all the messages exchanged between MCP Manager and the LLM
+* Summary of the total amount of tokens used in all the communications between MCP Manager and the LLM
+
 
 ## Installation
 
 Just download the appropriate file for your operating system in the [Release](https://gitlab.com/DMaxter/mcp-manager/-/releases) section, on **Packages**, and it is ready to go.
+
 
 ## Configuration
 
@@ -45,11 +61,22 @@ Configuration varies depending on the LLM provider:
     * The API endpoint can be found in the [Gemini documentation](https://ai.google.dev/gemini-api/docs/function-calling?example=chart#rest_2)(use the base REST endpoint). The API Key **should be configured via MCP Manager** and **not included in the URL**
 
 * **Azure OpenAI**
-    * Requires a deployed model
+    * Requires a self-hosted model on Azure
     * Resource endpoint
     * API Version (see [available versions](https://github.com/Azure/azure-rest-api-specs/tree/main/specification/cognitiveservices/data-plane/AzureOpenAI/inference))
-    * Deployed model name
+    * Model name
     * API Key
+
+* **OpenAI**
+    * Can use self-hosted models or generally available ones
+    * Model name
+    * Auhentication depends on deployment (commonly API Key)
+
+* **Anthropic**
+    * Requires an [API Key](https://console.anthropic.com/settings/keys)
+    * Model name
+    * The API endpoint is avaialble in the [Anthropic documentation](https://docs.anthropic.com/en/api/overview#examples)
+
 
 ## Usage
 
@@ -67,9 +94,9 @@ mcp-manager
 
 2. Perform prompts via HTTP call (assuming default port)
 
-Example with curl, using the workspace configured for `/azure` and using the filesystem MCP server:
+Example with curl, using the workspace configured for `/gemini` and using the filesystem MCP server:
 ```bash
-curl http://localhost:7000/azure -H "Content-Type: application/json" -d '{"messages": [{"role":"user","content":"Check if the file /tmp/abc exists"}]}'
+curl http://localhost:7000/gemini -H "Content-Type: application/json" -d '{"messages": [{"role":"user","content":"Check if the file /tmp/abc exists"}],"temperature":0}'
 ```
 
 The output is something similar to:
@@ -85,7 +112,7 @@ The output is something similar to:
       "tool_calls": [
         {
           "name": "get_file_info",
-          "id": "cGAjCuzqBBnUx2J2dpjpDbZg",
+          "id": "LoNc9rghWZV3pI7OHjeYNc4w",
           "arguments": {
             "path": "/tmp/abc"
           }
@@ -94,7 +121,7 @@ The output is something similar to:
     },
     {
       "type": "FunctionCallOutput",
-      "call_id": "cGAjCuzqBBnUx2J2dpjpDbZg",
+      "call_id": "LoNc9rghWZV3pI7OHjeYNc4w",
       "output": "Error: ENOENT: no such file or directory, stat '/tmp/abc'"
     },
     {
@@ -102,25 +129,37 @@ The output is something similar to:
       "content": "The file /tmp/abc does not exist."
     }
   ],
-  "temperature": null,
-  "max_tokens": null,
-  "top_p": null,
-  "tools": null
+  "temperature": 0.0,
+  "usage": {
+    "completion_tokens": 20,
+    "prompt_tokens": 1451,
+    "total_tokens": 1471
+  }
 }
 ```
 
 We get a complete list of all the messages exchanged between the user, the model, MCP Manager and the MCP servers.
+
 
 ## Limitations
 
 * **Supported LLMs**
     * Gemini
     * Azure OpenAI
-    * (Planned: [Claude](https://gitlab.com/DMaxter/mcp-manager/-/issues/3) and [OpenAI](https://gitlab.com/DMaxter/mcp-manager/-/issues/2))
+    * OpenAI-compatible (OpenAI, Ollama, DeepSeek, ...)
+    * Anthropic
 
 * **Supported MCP Server connections**
     * Local MCP servers
     * (Planned: [Remote MCP servers](https://gitlab.com/DMaxter/mcp-manager/-/issues/5))
+
+
+## Troubleshooting
+
+If you are experiencing some errors, feel free to [open an issue](https://gitlab.com/DMaxter/mcp-manager/-/issues) and paste the log output (with redacted information as needed) with the log level set to `debug`. To achieve this, set the environment variable `RUST_LOG` to `debug` and run MCP Manager again to have the complete logs.
+
+If you think you are able to fix your problem, feel free to fork this repo, apply the fix and open a merge request. You can find all the needed information in the [Contributing](#contributing) section.
+
 
 ## Contributing
 
