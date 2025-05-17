@@ -11,7 +11,7 @@ cache:
 
 variables:
   RUST_IMAGE: rustlang/rust:nightly
-  PACKAGE_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/mcp-manager/${CI_COMMIT_TAG}/mcp-manager"
+  PACKAGE_URL: "${CI_API_V4_URL}/projects/${CI_PROJECT_ID}/packages/generic/mcp-manager/${CI_COMMIT_TAG}/"
 
 build-mr:
   stage: build
