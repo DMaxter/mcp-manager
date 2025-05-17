@@ -41,7 +41,7 @@ impl From<ManagerBody> for RequestBody {
                 .messages
                 .into_iter()
                 .map(|message| match message {
-                    ManagerMessage::TextMessage(message) => Message::TextMessage(message),
+                    ManagerMessage::TextMessage(message) => Message::Text(message),
                     ManagerMessage::ToolOutput {
                         call_id, output, ..
                     } => Message::ToolOutput {
@@ -132,7 +132,7 @@ impl AIModel for Azure {
         Ok((
             vec![match choice.finish_reason {
                 FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
-                    Message::TextMessage(TextMessage { role: _, content }) => content,
+                    Message::Text(TextMessage { role: _, content }) => content,
                     _ => todo!("Unknown response needs to be handled: {response:#?}"),
                 }),
                 FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {

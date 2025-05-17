@@ -246,17 +246,12 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                 format!("{DEFAULT_LISTENER}:{port}")
             };
 
-            if config.listeners.contains_key(&listener) {
-                config
-                    .listeners
-                    .get_mut(&listener)
-                    .unwrap()
-                    .insert(path, Arc::clone(&workspace));
-            } else {
-                config
-                    .listeners
-                    .insert(listener, HashMap::from([(path, Arc::clone(&workspace))]));
-            }
+            config.listeners.entry(listener.clone()).or_default();
+            config
+                .listeners
+                .get_mut(&listener)
+                .unwrap()
+                .insert(path, Arc::clone(&workspace));
 
             workspace
         });

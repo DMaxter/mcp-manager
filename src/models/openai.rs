@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use reqwest::{Error, Url};
+use reqwest::Url;
 use rmcp::model::{JsonObject, Tool as RmcpTool};
 use serde::{Deserialize, Serialize};
 use serde_json::{from_str, json};
@@ -37,7 +37,7 @@ impl From<ManagerBody> for RequestBody {
                 .messages
                 .into_iter()
                 .map(|message| match message {
-                    ManagerMessage::TextMessage(message) => Message::TextMessage(message),
+                    ManagerMessage::TextMessage(message) => Message::Text(message),
                     ManagerMessage::ToolOutput {
                         call_id, output, ..
                     } => Message::ToolOutput {
@@ -131,7 +131,7 @@ pub(crate) enum FinishReason {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(untagged)]
 pub(crate) enum Message {
-    TextMessage(TextMessage),
+    Text(TextMessage),
     ToolCalls {
         role: Role,
         tool_calls: Vec<ToolCall>,
@@ -219,7 +219,7 @@ impl AIModel for OpenAI {
         Ok((
             vec![match choice.finish_reason {
                 FinishReason::Stop => ModelDecision::TextMessage(match choice.message {
-                    Message::TextMessage(TextMessage { role: _, content }) => content,
+                    Message::Text(TextMessage { role: _, content }) => content,
                     _ => todo!("Unknown response needs to be handled: {response:#?}"),
                 }),
                 FinishReason::ToolCalls => ModelDecision::ToolCalls(match choice.message {

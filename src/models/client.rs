@@ -39,7 +39,7 @@ type AuthError =
 pub(crate) enum ModelClient {
     ClientCredentials {
         http: HttpClient,
-        auth_params: AuthClient,
+        auth_params: Box<AuthClient>,
         auth_client: HttpClient,
         scope: Option<Scope>,
         token_data: Mutex<TokenData>,
@@ -118,7 +118,7 @@ impl ModelClient {
                     .set_client_secret(ClientSecret::new(client_secret))
                     .set_token_uri(
                         TokenUrl::new(auth_url.clone())
-                            .expect(&format!("Invalid auth url \"{auth_url}\"")),
+                            .unwrap_or_else(|_| panic!("Invalid auth url \"{auth_url}\"")),
                     );
 
                 let auth_client = HttpClient::new();
@@ -141,7 +141,7 @@ impl ModelClient {
                 (
                     ModelClient::ClientCredentials {
                         http: http_client,
-                        auth_params,
+                        auth_params: Box::new(auth_params),
                         auth_client,
                         scope: client_scope,
                         token_data: Mutex::new(TokenData { token, expiration }),
@@ -233,11 +233,10 @@ fn create_http_client(
     parameters: Option<HashMap<String, String>>,
 ) -> (HttpClient, Url) {
     let url = if let Some(params) = parameters {
-        Url::parse_with_params(&url, params.iter()).expect(&format!(
-            "Invalid URL \"{url}\" with parameters \"{params:?}\""
-        ))
+        Url::parse_with_params(&url, params.iter())
+            .unwrap_or_else(|_| panic!("Invalid URL \"{url}\" with parameters \"{params:?}\""))
     } else {
-        Url::parse(&url).expect(&format!("Invalid URL \"{url}\""))
+        Url::parse(&url).unwrap_or_else(|_| panic!("Invalid URL \"{url}\""))
     };
 
     let client = if let Some(headers) = headers {

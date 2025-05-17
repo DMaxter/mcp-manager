@@ -306,9 +306,8 @@ fn remove_keys(map: &mut JsonObject) {
     map.remove("additionalProperties");
 
     for value in map.values_mut() {
-        match value {
-            Value::Object(map) => remove_keys(map),
-            _ => (),
+        if let Value::Object(map) = value {
+            remove_keys(map)
         }
     }
 }

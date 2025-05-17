@@ -79,7 +79,7 @@ pub async fn workspace_handler(
             .flat_map(|(mcp, tools)| {
                 tools
                     .iter()
-                    .map(|tool| (tool.name.clone().into_owned(), Arc::clone(&mcp)))
+                    .map(|tool| (tool.name.clone().into_owned(), Arc::clone(mcp)))
                     .collect::<Vec<(String, Arc<dyn McpServer + Send>)>>()
             })
             .collect::<HashMap<String, Arc<dyn McpServer + Send>>>();
