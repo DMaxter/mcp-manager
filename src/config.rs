@@ -1,11 +1,16 @@
 use rmcp::{ServiceExt, transport::TokioChildProcess};
 use serde::Deserialize;
-use std::{collections::HashMap, fs::File, io, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fs::File,
+    io,
+    sync::Arc,
+};
 use tokio::process::Command;
 
 use crate::{
     ManagerConfig, Workspace,
-    mcp::local::LocalMcp,
+    mcp::{ToolFilter, local::LocalMcp},
     models::{
         anthropic::Anthropic,
         auth::{Auth, AuthLocation},
@@ -101,11 +106,20 @@ enum Mcp {
         command: String,
         args: Option<Vec<String>>,
         env: Option<HashMap<String, String>>,
+        filter: Option<ToolFilterConfig>,
     },
     Remote {
         host: String,
         port: u16,
+        filter: Option<ToolFilterConfig>,
     },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub(crate) enum ToolFilterConfig {
+    Include { include: HashSet<String> },
+    Exclude { exclude: HashSet<String> },
 }
 
 pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
@@ -150,7 +164,12 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
             config.mcps.insert(
                 name,
                 Arc::new(match mcp {
-                    Mcp::Local { command, args, env } => {
+                    Mcp::Local {
+                        command,
+                        args,
+                        env,
+                        filter,
+                    } => {
                         let mut command = Command::new(command);
 
                         if let Some(args) = args {
@@ -169,6 +188,7 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                                 )
                                 .await
                                 .expect("Couldn't start MCP server"),
+                            filter: get_filter(filter),
                         }
                     }
                     _ => unimplemented!("MCP server not implemented"),
@@ -279,5 +299,16 @@ fn get_auth(auth: Option<AuthMethod>) -> Auth {
         }
     } else {
         Auth::NoAuth
+    }
+}
+
+fn get_filter(filter: Option<ToolFilterConfig>) -> ToolFilter {
+    if let Some(filter) = filter {
+        match filter {
+            ToolFilterConfig::Include { include } => ToolFilter::Include(include),
+            ToolFilterConfig::Exclude { exclude } => ToolFilter::Exclude(exclude),
+        }
+    } else {
+        ToolFilter::Exclude(HashSet::new())
     }
 }

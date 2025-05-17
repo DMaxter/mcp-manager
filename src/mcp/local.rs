@@ -8,9 +8,12 @@ use tracing::{Level, event, instrument};
 
 use crate::mcp::{McpServer, ToolCall};
 
+use super::ToolFilter;
+
 #[derive(Debug)]
 pub(crate) struct LocalMcp {
     pub(crate) command: RunningService<RoleClient, ()>,
+    pub(crate) filter: ToolFilter,
 }
 
 #[async_trait]
@@ -55,6 +58,19 @@ impl McpServer for LocalMcp {
 
     #[instrument(skip(self))]
     async fn list_tools(&self) -> Result<Vec<Tool>, ServiceError> {
-        Ok(self.command.list_all_tools().await?)
+        Ok(self
+            .command
+            .list_all_tools()
+            .await?
+            .into_iter()
+            .filter(|tool| {
+                let name = tool.name.to_string();
+
+                match &self.filter {
+                    ToolFilter::Exclude(exclusions) => !exclusions.contains(&name),
+                    ToolFilter::Include(inclusions) => inclusions.contains(&name),
+                }
+            })
+            .collect())
     }
 }

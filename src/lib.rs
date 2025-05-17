@@ -27,10 +27,12 @@ type HandlerConfig = Arc<RwLock<HashMap<String, Arc<Workspace>>>>;
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct ManagerBody {
     pub(crate) messages: Vec<Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) temperature: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) max_tokens: Option<isize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) top_p: Option<f64>,
-    pub(crate) tools: Option<Vec<OpenAITool>>,
 }
 
 impl ManagerBody {

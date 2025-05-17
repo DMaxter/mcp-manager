@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use rmcp::{
     ServiceError,
@@ -18,4 +20,10 @@ pub struct ToolCall {
     pub(crate) name: String,
     pub(crate) id: String,
     pub(crate) arguments: Option<JsonObject>,
+}
+
+#[derive(Debug)]
+pub(crate) enum ToolFilter {
+    Include(HashSet<String>),
+    Exclude(HashSet<String>),
 }
