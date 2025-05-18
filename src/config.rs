@@ -1,4 +1,8 @@
-use rmcp::{ServiceExt, transport::TokioChildProcess};
+use rmcp::{
+    ServiceExt,
+    model::{ClientCapabilities, ClientInfo},
+    transport::{SseClientTransport, TokioChildProcess},
+};
 use serde::Deserialize;
 use std::{
     collections::{HashMap, HashSet},
@@ -7,17 +11,13 @@ use std::{
     sync::Arc,
 };
 use tokio::process::Command;
+use tracing::{Level, event, instrument};
 
 use crate::{
     ManagerConfig, Workspace,
-    mcp::{ToolFilter, local::LocalMcp},
-    models::{
-        anthropic::Anthropic,
-        auth::{Auth, AuthLocation},
-        azure::Azure,
-        gemini::Gemini,
-        openai::OpenAI,
-    },
+    auth::{Auth, AuthLocation},
+    mcp::{McpServer, ToolFilter},
+    models::{anthropic::Anthropic, azure::Azure, gemini::Gemini, openai::OpenAI},
 };
 
 const DEFAULT_PORT: u16 = 7000;
@@ -109,9 +109,9 @@ enum Mcp {
         filter: Option<ToolFilterConfig>,
     },
     Remote {
-        host: String,
-        port: u16,
+        url: String,
         filter: Option<ToolFilterConfig>,
+        auth: Option<AuthMethod>,
     },
 }
 
@@ -122,6 +122,7 @@ pub(crate) enum ToolFilterConfig {
     Exclude { exclude: HashSet<String> },
 }
 
+#[instrument]
 pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     let file = File::open(file).expect("Couldn't open file");
 
@@ -132,6 +133,8 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
     };
 
     for (name, model) in file_config.models {
+        event!(Level::DEBUG, "Parsing model \"{name}\"");
+
         let auth = match model {
             Model::OpenAI(BaseModel { ref auth, .. })
             | Model::Gemini { ref auth, .. }
@@ -159,11 +162,22 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
         );
     }
 
+    let client_info = ClientInfo {
+        protocol_version: Default::default(),
+        capabilities: ClientCapabilities::default(),
+        client_info: rmcp::model::Implementation {
+            name: String::from("mcp-manager"),
+            version: String::from("0.3.0"),
+        },
+    };
+
     if let Some(config_mcps) = file_config.mcps {
         for (name, mcp) in config_mcps {
+            event!(Level::DEBUG, "Parsing MCP server \"{name}\"");
+
             config.mcps.insert(
                 name,
-                Arc::new(match mcp {
+                match mcp {
                     Mcp::Local {
                         command,
                         args,
@@ -180,24 +194,42 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                             command.envs(env);
                         }
 
-                        LocalMcp {
-                            command: ()
+                        Arc::new(McpServer {
+                            service: ()
                                 .serve(
-                                    TokioChildProcess::new(&mut command)
+                                    TokioChildProcess::new(command)
                                         .expect("Couldn't start MCP server in tokio"),
                                 )
                                 .await
                                 .expect("Couldn't start MCP server"),
                             filter: get_filter(filter),
-                        }
+                        })
                     }
-                    _ => unimplemented!("MCP server not implemented"),
-                }),
+                    Mcp::Remote { url, filter, auth } => {
+                        let auth = get_auth(auth);
+
+                        let transport = SseClientTransport::start(url)
+                            .await
+                            .unwrap_or_else(|error| panic!("Couldn't connect to server: {error}"));
+
+                        let client = client_info
+                            .serve(transport)
+                            .await
+                            .unwrap_or_else(|error| panic!("Error with MCP connection: {error}"));
+
+                        Arc::new(McpServer {
+                            filter: get_filter(filter),
+                            service: client,
+                        })
+                    }
+                },
             );
         }
     }
 
     for (name, config_workspace) in file_config.workspaces {
+        event!(Level::DEBUG, "Parsing workspace \"{name}\"");
+
         config.workspaces.insert(name.clone(), {
             let mut workspace = Workspace {
                 name: name.clone(),
@@ -205,10 +237,7 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                     if let Some(model) = config.models.get(&config_workspace.model) {
                         model
                     } else {
-                        panic!(
-                            "Undefined model {} in workspace {name}",
-                            config_workspace.model
-                        )
+                        panic!("Undefined model \"{}\"", config_workspace.model)
                     },
                 ),
                 mcps: Vec::new(),
@@ -219,7 +248,7 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                     if let Some(mcp) = config.mcps.get(&mcp) {
                         workspace.mcps.push(Arc::clone(mcp))
                     } else {
-                        panic!("Undefined MCP {mcp} in workspace {name}")
+                        panic!("Undefined MCP server \"{mcp}\"")
                     }
                 }
             }

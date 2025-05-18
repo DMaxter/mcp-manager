@@ -1,27 +1,25 @@
-use async_trait::async_trait;
+use std::collections::HashSet;
+
+use serde::{Deserialize, Serialize};
+
 use rmcp::{
     RoleClient, ServiceError,
-    model::{CallToolRequestParam, RawContent, Tool},
+    model::{CallToolRequestParam, ClientInfo, JsonObject, RawContent, Tool},
     service::RunningService,
 };
 use tracing::{Level, event, instrument};
 
-use crate::mcp::{McpServer, ToolCall};
-
-use super::ToolFilter;
-
 #[derive(Debug)]
-pub(crate) struct LocalMcp {
-    pub(crate) command: RunningService<RoleClient, ()>,
+pub(crate) struct McpServer {
+    pub(crate) service: RunningService<RoleClient, ()>,
     pub(crate) filter: ToolFilter,
 }
 
-#[async_trait]
-impl McpServer for LocalMcp {
+impl McpServer {
     #[instrument(skip(self))]
-    async fn call(&self, call: ToolCall) -> Result<String, ServiceError> {
+    pub(crate) async fn call(&self, call: ToolCall) -> Result<String, ServiceError> {
         let result = self
-            .command
+            .service
             .call_tool(CallToolRequestParam {
                 name: call.name.into(),
                 arguments: call.arguments,
@@ -57,9 +55,9 @@ impl McpServer for LocalMcp {
     }
 
     #[instrument(skip(self))]
-    async fn list_tools(&self) -> Result<Vec<Tool>, ServiceError> {
+    pub(crate) async fn list_tools(&self) -> Result<Vec<Tool>, ServiceError> {
         Ok(self
-            .command
+            .service
             .list_all_tools()
             .await?
             .into_iter()
@@ -73,4 +71,17 @@ impl McpServer for LocalMcp {
             })
             .collect())
     }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct ToolCall {
+    pub(crate) name: String,
+    pub(crate) id: String,
+    pub(crate) arguments: Option<JsonObject>,
+}
+
+#[derive(Debug)]
+pub(crate) enum ToolFilter {
+    Include(HashSet<String>),
+    Exclude(HashSet<String>),
 }

@@ -16,7 +16,7 @@ use tracing::{Level, event, instrument};
 
 use crate::{
     Error as ManagerError,
-    models::auth::{Auth, AuthLocation},
+    auth::{Auth, AuthLocation},
 };
 
 type Token = StandardTokenResponse<EmptyExtraTokenFields, BasicTokenType>;

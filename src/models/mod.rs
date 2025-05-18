@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use crate::{Error as ManagerError, ManagerBody, UsageTokens, mcp::ToolCall};
 
 pub mod anthropic;
-pub mod auth;
 pub mod azure;
 pub mod client;
 pub mod gemini;

@@ -9,10 +9,10 @@ use tracing::{Level, event};
 
 use crate::{
     Error as ManagerError, ManagerBody,
+    auth::Auth,
     mcp::ToolCall as GeneralToolCall,
     models::{
-        AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage, auth::Auth,
-        client::ModelClient,
+        AIModel, Message as ManagerMessage, ModelDecision, Role, TextMessage, client::ModelClient,
     },
 };
 
@@ -188,13 +188,27 @@ impl AIModel for OpenAI {
         body.tools = Some(
             tools
                 .into_iter()
-                .map(|tool: RmcpTool| Tool {
-                    r#type: ToolType::Function,
-                    function: Function {
-                        name: tool.name.into_owned(),
-                        description: tool.description.into_owned(),
-                        parameters: tool.input_schema,
-                    },
+                .map(|tool: RmcpTool| {
+                    let description = if let Some(description) = tool.description {
+                        description.to_string()
+                    } else {
+                        event!(
+                            Level::WARN,
+                            "Tool \"{}\" doesn't have a description",
+                            tool.name
+                        );
+
+                        String::new()
+                    };
+
+                    Tool {
+                        r#type: ToolType::Function,
+                        function: Function {
+                            name: tool.name.to_string(),
+                            description,
+                            parameters: tool.input_schema,
+                        },
+                    }
                 })
                 .collect(),
         );

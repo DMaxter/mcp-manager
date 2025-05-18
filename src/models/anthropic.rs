@@ -9,9 +9,9 @@ use tracing::{Level, event, instrument};
 
 use crate::{
     Error as ManagerError, UsageTokens,
+    auth::Auth,
     models::{
         AIModel, ManagerBody, ModelDecision, TextMessage, ToolCall as GeneralToolCall,
-        auth::Auth,
         client::ModelClient,
         openai::{FinishReason, Function, Message, RequestBody, ResponseBody, Tool, ToolType},
     },
@@ -52,13 +52,27 @@ impl AIModel for Anthropic {
         body.tools = Some(
             tools
                 .into_iter()
-                .map(|tool: RmcpTool| Tool {
-                    r#type: ToolType::Function,
-                    function: Function {
-                        name: tool.name.into_owned(),
-                        description: tool.description.into_owned(),
-                        parameters: tool.input_schema,
-                    },
+                .map(|tool: RmcpTool| {
+                    let description = if let Some(description) = tool.description {
+                        description.to_string()
+                    } else {
+                        event!(
+                            Level::WARN,
+                            "Tool \"{}\" doesn't have a description",
+                            tool.name
+                        );
+
+                        String::new()
+                    };
+
+                    Tool {
+                        r#type: ToolType::Function,
+                        function: Function {
+                            name: tool.name.to_string(),
+                            description,
+                            parameters: tool.input_schema,
+                        },
+                    }
                 })
                 .collect(),
         );

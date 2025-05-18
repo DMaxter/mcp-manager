@@ -8,10 +8,11 @@ use tracing::{Level, event, instrument};
 
 use crate::{
     Error as ManagerError, ManagerBody, UsageTokens as ManagerUsage,
+    auth::Auth,
     mcp::ToolCall as GeneralToolCall,
     models::{
         AIModel, Message as ManagerMessage, ModelDecision, Role as ManagerRole, TextMessage,
-        auth::Auth, client::ModelClient,
+        client::ModelClient,
     },
 };
 
@@ -226,9 +227,21 @@ impl AIModel for Gemini {
                     let mut schema = JsonObject::clone(&tool.input_schema);
                     remove_keys(&mut schema);
 
+                    let description = if let Some(description) = tool.description {
+                        description.to_string()
+                    } else {
+                        event!(
+                            Level::WARN,
+                            "Tool \"{}\" doesn't have a description",
+                            tool.name
+                        );
+
+                        String::new()
+                    };
+
                     FunctionDeclaration {
                         name: tool.name.to_string(),
-                        description: tool.description.to_string(),
+                        description,
                         parameters: schema,
                     }
                 })

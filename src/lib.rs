@@ -13,6 +13,7 @@ use tracing::{Level, event, instrument};
 
 use crate::models::AIModel;
 
+pub(crate) mod auth;
 pub mod config;
 pub(crate) mod error;
 pub mod mcp;
@@ -46,13 +47,13 @@ pub struct ManagerConfig {
     pub listeners: HashMap<String, HashMap<String, Arc<Workspace>>>,
     pub workspaces: HashMap<String, Arc<Workspace>>,
     models: HashMap<String, Arc<dyn AIModel + Send>>,
-    mcps: HashMap<String, Arc<dyn McpServer + Send>>,
+    mcps: HashMap<String, Arc<McpServer>>,
 }
 
 pub struct Workspace {
     name: String,
     pub model: Arc<dyn AIModel + Send>,
-    mcps: Vec<Arc<dyn McpServer + Send>>,
+    mcps: Vec<Arc<McpServer>>,
 }
 
 #[instrument(skip(config, body))]
@@ -80,9 +81,9 @@ pub async fn workspace_handler(
                 tools
                     .iter()
                     .map(|tool| (tool.name.clone().into_owned(), Arc::clone(mcp)))
-                    .collect::<Vec<(String, Arc<dyn McpServer + Send>)>>()
+                    .collect::<Vec<(String, Arc<McpServer>)>>()
             })
-            .collect::<HashMap<String, Arc<dyn McpServer + Send>>>();
+            .collect::<HashMap<String, Arc<McpServer>>>();
 
         let tools: Vec<Tool> = tools.into_iter().flatten().collect();
 
