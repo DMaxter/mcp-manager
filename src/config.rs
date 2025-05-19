@@ -322,7 +322,7 @@ fn get_auth(auth: Option<AuthMethod>) -> Auth {
             },
         }
     } else {
-        Auth::NoAuth
+        Auth::None
     }
 }
 

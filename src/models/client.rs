@@ -149,7 +149,7 @@ impl ModelClient {
                     url,
                 )
             }
-            Auth::NoAuth => {
+            Auth::None => {
                 let (client, url) = create_http_client(url, headers, parameters);
 
                 (ModelClient::NoAuth(SimpleClient { client }), url)

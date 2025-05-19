@@ -6,7 +6,7 @@ pub enum Auth {
         client_secret: String,
         scope: Option<String>,
     },
-    NoAuth,
+    None,
 }
 
 pub enum AuthLocation {
