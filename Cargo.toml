@@ -11,7 +11,7 @@ futures = "0.3"
 oauth2 = "5"
 rand = "0.9"
 reqwest = { version = "0.12", features = ["json"] }
-rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk.git", features = ["client", "reqwest", "transport-child-process", "transport-sse-client"] }
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk.git", features = ["client", "reqwest", "transport-child-process", "transport-sse-client", "transport-streamable-http-client"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"

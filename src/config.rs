@@ -1,7 +1,7 @@
 use rmcp::{
     ServiceExt,
     model::{ClientCapabilities, ClientInfo},
-    transport::{SseClientTransport, TokioChildProcess},
+    transport::{SseClientTransport, StreamableHttpClientTransport, TokioChildProcess},
 };
 use serde::Deserialize;
 use std::{
@@ -112,6 +112,7 @@ enum Mcp {
         url: String,
         filter: Option<ToolFilterConfig>,
         auth: Option<AuthMethod>,
+        sse: Option<bool>,
     },
 }
 
@@ -195,7 +196,8 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                         }
 
                         Arc::new(McpServer {
-                            service: ()
+                            service: client_info
+                                .clone()
                                 .serve(
                                     TokioChildProcess::new(command)
                                         .expect("Couldn't start MCP server in tokio"),
@@ -205,17 +207,35 @@ pub async fn get_config(file: &str) -> io::Result<ManagerConfig> {
                             filter: get_filter(filter),
                         })
                     }
-                    Mcp::Remote { url, filter, auth } => {
-                        let auth = get_auth(auth);
+                    Mcp::Remote {
+                        url,
+                        filter,
+                        auth,
+                        sse,
+                    } => {
+                        let _auth = get_auth(auth);
 
-                        let transport = SseClientTransport::start(url)
-                            .await
-                            .unwrap_or_else(|error| panic!("Couldn't connect to server: {error}"));
-
-                        let client = client_info
-                            .serve(transport)
-                            .await
-                            .unwrap_or_else(|error| panic!("Error with MCP connection: {error}"));
+                        let client = if let Some(sse) = sse
+                            && sse
+                        {
+                            client_info
+                                .clone()
+                                .serve(SseClientTransport::start(url).await.unwrap_or_else(
+                                    |error| panic!("Couldn't connect to server: {error}"),
+                                ))
+                                .await
+                                .unwrap_or_else(|error| {
+                                    panic!("Error with MCP connection: {error}")
+                                })
+                        } else {
+                            client_info
+                                .clone()
+                                .serve(StreamableHttpClientTransport::from_uri(url))
+                                .await
+                                .unwrap_or_else(|error| {
+                                    panic!("Error with MCP connection: {error}")
+                                })
+                        };
 
                         Arc::new(McpServer {
                             filter: get_filter(filter),

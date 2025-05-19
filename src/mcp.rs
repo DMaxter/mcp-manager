@@ -11,7 +11,7 @@ use tracing::{Level, event, instrument};
 
 #[derive(Debug)]
 pub(crate) struct McpServer {
-    pub(crate) service: RunningService<RoleClient, ()>,
+    pub(crate) service: RunningService<RoleClient, ClientInfo>,
     pub(crate) filter: ToolFilter,
 }
 
